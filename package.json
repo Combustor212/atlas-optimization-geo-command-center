@@ -1,0 +1,16 @@
+{
+  "name": "atlas-optimization-geo-command-center",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GEO Command Center + Atlas GS - Agency dashboards and CRM",
+  "workspaces": [
+    "apps/geo-command-center",
+    "apps/atlas-gs"
+  ],
+  "scripts": {
+    "dev:geo": "npm run dev --workspace=apps/geo-command-center",
+    "dev:atlas": "npm run dev --workspace=apps/atlas-gs",
+    "build:geo": "npm run build --workspace=apps/geo-command-center",
+    "build:atlas": "npm run build --workspace=apps/atlas-gs"
+  }
+}
