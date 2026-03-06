@@ -8,9 +8,12 @@
     "apps/atlas-gs"
   ],
   "scripts": {
-    "dev:geo": "npm run dev --workspace=apps/geo-command-center",
+    "dev:geo": "PORT=3000 npm run dev --workspace=apps/geo-command-center",
     "dev:atlas": "npm run dev --workspace=apps/atlas-gs",
+    "dev:mgo-backend": "cd \"apps/MGODATAImprovedcursor copy/mgo-scanner-backend\" && npm run dev",
+    "dev:mgo-frontend": "cd \"apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor\" && npm run dev",
     "build:geo": "npm run build --workspace=apps/geo-command-center",
-    "build:atlas": "npm run build --workspace=apps/atlas-gs"
+    "build:atlas": "npm run build --workspace=apps/atlas-gs",
+    "build:mgo": "cd \"apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor\" && npm run build"
   }
 }

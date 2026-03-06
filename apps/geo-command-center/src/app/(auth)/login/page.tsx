@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -9,7 +9,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams.get('returnTo')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -28,10 +29,18 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user?.id ?? '').single()
+      const userId = data.user?.id
+      let role: string | null = null
+      if (userId) {
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).single()
+        role = profile?.role ?? null
+      }
       setLoading(false)
-      router.push(profile?.role === 'client' ? '/portal' : '/dashboard')
-      router.refresh()
+      // Full page navigation so session cookies are sent
+      // Honor returnTo from AGS/other apps, or use role-based default
+      const defaultDest = role === 'client' ? '/portal' : '/dashboard'
+      const destination = returnTo && returnTo.startsWith('/') && !returnTo.includes('//') ? returnTo : defaultDest
+      window.location.replace(destination)
     } catch (err) {
       setLoading(false)
       const msg = err instanceof Error ? err.message : String(err)

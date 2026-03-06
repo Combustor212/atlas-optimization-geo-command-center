@@ -1,0 +1,50 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <div class="search-box">
+    <form action="/admin/users" method="GET">
+      <input type="text" name="q" placeholder="Search by email or name..." value="<%= search %>">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+</div>
+
+<div class="content">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Email</th>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Created</th>
+        <th>Last Login</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% users.forEach(user => { %>
+      <tr>
+        <td><a href="/admin/users/<%= user.id %>"><%= user.id.substring(0, 8) %>...</a></td>
+        <td><%= user.email %></td>
+        <td><%= user.name || '-' %></td>
+        <td><span class="badge badge-<%= user.role === 'ADMIN' || user.role === 'SUPERADMIN' ? 'danger' : 'info' %>"><%= user.role %></span></td>
+        <td><%= new Date(user.createdAt).toLocaleDateString() %></td>
+        <td><%= user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : 'Never' %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <div class="pagination">
+    <% if (pagination.page > 1) { %>
+      <a href="?page=<%= pagination.page - 1 %>&q=<%= search %>">Previous</a>
+    <% } %>
+    <span class="current">Page <%= pagination.page %> of <%= pagination.totalPages %></span>
+    <% if (pagination.page < pagination.totalPages) { %>
+      <a href="?page=<%= pagination.page + 1 %>&q=<%= search %>">Next</a>
+    <% } %>
+    <span>Total: <%= pagination.total %></span>
+  </div>
+</div>
+
+
+

@@ -66,9 +66,9 @@ export async function GET(req: NextRequest) {
     const [r1, r2, r3, r4, r5] = await Promise.all([
       supabase.from('rankings').select('location_id, map_pack_position, organic_position').in('location_id', locationIds).order('recorded_at', { ascending: false }),
       supabase.from('traffic_metrics').select('location_id, organic_clicks').in('location_id', locationIds),
-      supabase.from('reviews').select('location_id, count').in('location_id', locationIds),
+      supabase.from('reviews').select('location_id, count').in('location_id', locationIds).order('recorded_at', { ascending: false }),
       supabase.from('calls_tracked').select('location_id, call_count').in('location_id', locationIds),
-      supabase.from('revenue_estimates').select('location_id, estimated_monthly_lift').in('location_id', locationIds),
+      supabase.from('revenue_estimates').select('location_id, estimated_monthly_lift').in('location_id', locationIds).order('calculated_at', { ascending: false }),
     ])
     rankingsRes = r1.data || []
     trafficRes = r2.data || []
@@ -77,29 +77,63 @@ export async function GET(req: NextRequest) {
     revenueRes = r5.data || []
   }
 
+  const locationsData = (locations || []).map((loc) => {
+    const latestRank = rankingsRes.find((r) => r.location_id === loc.id)
+    const prevRank = rankingsRes.filter((r) => r.location_id === loc.id)[1]
+    const currentRank = latestRank?.map_pack_position ?? latestRank?.organic_position ?? null
+    const previousRank = prevRank?.map_pack_position ?? prevRank?.organic_position ?? null
+    const rankChange = currentRank !== null && previousRank !== null 
+      ? ((previousRank - currentRank) / previousRank) * 100 
+      : 0
+    const traffic = trafficRes.filter((t) => t.location_id === loc.id).reduce((s, t) => s + t.organic_clicks, 0)
+    const latestReviews = reviewsRes.find((r) => r.location_id === loc.id)?.count ?? 0
+    const calls = callsRes.filter((c) => c.location_id === loc.id).reduce((s, c) => s + c.call_count, 0)
+    const revenue = revenueRes.find((r) => r.location_id === loc.id)?.estimated_monthly_lift ?? 0
+    
+    return {
+      name: loc.name,
+      rank: currentRank,
+      previousRank,
+      rankChange,
+      organicClicks: traffic,
+      reviews: latestReviews,
+      calls,
+      estimatedRevenue: revenue,
+    }
+  })
+
+  const ranksWithValue = locationsData.filter((l) => l.rank != null)
+  const avgRank = ranksWithValue.length 
+    ? ranksWithValue.reduce((s, l) => s + (l.rank ?? 0), 0) / ranksWithValue.length 
+    : 0
+
+  const topPerformer = locationsData.reduce((best, loc) => 
+    (loc.rank ?? 999) < (best.rank ?? 999) ? loc : best
+  , locationsData[0] || { name: 'N/A', rank: null })
+
+  const biggestImprovement = locationsData.reduce((best, loc) => 
+    Math.abs(loc.rankChange) > Math.abs(best.rankChange) ? loc : best
+  , locationsData[0] || { name: 'N/A', rankChange: 0 })
+
+  const totalRevenue = locationsData.reduce((s, l) => s + l.estimatedRevenue, 0)
+
   const reportData = {
     clientName: client.name,
     generatedAt: new Date().toISOString(),
-    locations: (locations || []).map((loc) => {
-      const rank = rankingsRes.find((r) => r.location_id === loc.id)
-      const traffic = trafficRes.filter((t) => t.location_id === loc.id).reduce((s, t) => s + t.organic_clicks, 0)
-      const reviews = reviewsRes.find((r) => r.location_id === loc.id)?.count ?? 0
-      const calls = callsRes.filter((c) => c.location_id === loc.id).reduce((s, c) => s + c.call_count, 0)
-      const revenue = revenueRes.find((r) => r.location_id === loc.id)?.estimated_monthly_lift ?? 0
-      return {
-        name: loc.name,
-        rank: rank?.map_pack_position ?? rank?.organic_position ?? null,
-        organicClicks: traffic,
-        reviews,
-        calls,
-        estimatedRevenue: revenue,
-      }
-    }),
+    dateRange: 'Last 30 Days',
+    locations: locationsData,
     totals: {
+      locations: locationsData.length,
+      avgRank,
       organicClicks: trafficRes.reduce((s, t) => s + t.organic_clicks, 0),
       reviews: reviewsRes.reduce((s, r) => s + r.count, 0),
       calls: callsRes.reduce((s, c) => s + c.call_count, 0),
-      revenue: revenueRes.reduce((s, r) => s + r.estimated_monthly_lift, 0),
+      revenue: totalRevenue,
+    },
+    highlights: {
+      topPerformer: `${topPerformer.name} (Rank #${topPerformer.rank ?? 'N/A'})`,
+      biggestImprovement: `${biggestImprovement.name} (${biggestImprovement.rankChange > 0 ? '+' : ''}${biggestImprovement.rankChange.toFixed(0)}%)`,
+      totalImprovement: `${totalRevenue > 0 ? '+' : ''}$${totalRevenue.toLocaleString()}/mo revenue lift`,
     },
   }
 

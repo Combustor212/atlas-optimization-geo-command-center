@@ -1,0 +1,57 @@
+<div class="header">
+  <h1><%= title %></h1>
+</div>
+
+<div class="content">
+  <div class="filter-bar">
+    <form action="/admin/scans" method="GET" style="display: flex; gap: 10px;">
+      <select name="status">
+        <option value="">All Statuses</option>
+        <option value="QUEUED" <%= filters.status === 'QUEUED' ? 'selected' : '' %>>Queued</option>
+        <option value="RUNNING" <%= filters.status === 'RUNNING' ? 'selected' : '' %>>Running</option>
+        <option value="COMPLETE" <%= filters.status === 'COMPLETE' ? 'selected' : '' %>>Complete</option>
+        <option value="FAILED" <%= filters.status === 'FAILED' ? 'selected' : '' %>>Failed</option>
+      </select>
+      <button type="submit" class="btn">Filter</button>
+    </form>
+  </div>
+  
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Location</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Score</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% scans.forEach(scan => { %>
+      <tr>
+        <td><a href="/admin/scans/<%= scan.id %>"><%= scan.id.substring(0, 12) %>...</a></td>
+        <td><%= scan.location ? scan.location.name : 'N/A' %></td>
+        <td><span class="badge badge-secondary"><%= scan.scanType %></span></td>
+        <td><span class="badge badge-<%= scan.status === 'COMPLETE' ? 'success' : scan.status === 'FAILED' ? 'danger' : scan.status === 'RUNNING' ? 'info' : 'warning' %>"><%= scan.status %></span></td>
+        <td><%= scan.scoreOverall || '-' %></td>
+        <td><%= new Date(scan.createdAt).toLocaleString() %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <div class="pagination">
+    <% if (pagination.page > 1) { %>
+      <a href="?page=<%= pagination.page - 1 %>&status=<%= filters.status || '' %>">Previous</a>
+    <% } %>
+    <span class="current">Page <%= pagination.page %> of <%= pagination.totalPages %></span>
+    <% if (pagination.page < pagination.totalPages) { %>
+      <a href="?page=<%= pagination.page + 1 %>&status=<%= filters.status || '' %>">Next</a>
+    <% } %>
+    <span>Total: <%= pagination.total %></span>
+  </div>
+</div>
+
+
+

@@ -1,0 +1,81 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <a href="/admin/users" class="btn btn-secondary">Back to Users</a>
+</div>
+
+<div class="content">
+  <h2>User Details</h2>
+  
+  <div class="detail-row">
+    <div class="detail-label">ID</div>
+    <div class="detail-value"><%= user.id %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Email</div>
+    <div class="detail-value"><%= user.email %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Name</div>
+    <div class="detail-value"><%= user.name || '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Role</div>
+    <div class="detail-value"><span class="badge badge-info"><%= user.role %></span></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Created</div>
+    <div class="detail-value"><%= new Date(user.createdAt).toLocaleString() %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Last Login</div>
+    <div class="detail-value"><%= user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'Never' %></div>
+  </div>
+  
+  <h3 style="margin-top: 30px;">Organizations</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Organization</th>
+        <th>Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% user.organizationMembers.forEach(member => { %>
+      <tr>
+        <td><a href="/admin/orgs/<%= member.org.id %>"><%= member.org.name %></a></td>
+        <td><span class="badge badge-info"><%= member.role %></span></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <h3 style="margin-top: 30px;">Recent Scans</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Scan ID</th>
+        <th>Status</th>
+        <th>Score</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% user.scans.forEach(scan => { %>
+      <tr>
+        <td><a href="/admin/scans/<%= scan.id %>"><%= scan.id.substring(0, 12) %>...</a></td>
+        <td><span class="badge badge-<%= scan.status === 'COMPLETE' ? 'success' : scan.status === 'FAILED' ? 'danger' : 'warning' %>"><%= scan.status %></span></td>
+        <td><%= scan.scoreOverall || '-' %></td>
+        <td><%= new Date(scan.createdAt).toLocaleDateString() %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</div>
+
+
+

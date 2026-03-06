@@ -34,3 +34,7 @@ export function CardTitle({ children, className }: CardProps) {
     </h3>
   )
 }
+
+export function CardContent({ children, className }: CardProps) {
+  return <div className={cn('', className)}>{children}</div>
+}

@@ -1,0 +1,321 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "MGO Scanner Backend API",
+    "version": "1.0.0",
+    "description": "Production backend for MGO app with multi-tenant support, scan tracking, and dashboards"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "email": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["USER", "ADMIN", "SUPERADMIN"] }
+        }
+      },
+      "Organization": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "ownerUserId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Location": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "orgId": { "type": "string" },
+          "name": { "type": "string" },
+          "city": { "type": "string" },
+          "state": { "type": "string" },
+          "country": { "type": "string" }
+        }
+      },
+      "Scan": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "orgId": { "type": "string" },
+          "locationId": { "type": "string" },
+          "status": { "type": "string", "enum": ["QUEUED", "RUNNING", "COMPLETE", "FAILED"] },
+          "scoreOverall": { "type": "number" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Register new user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password", "name", "organizationName"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "name": { "type": "string" },
+                  "organizationName": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User registered successfully" },
+          "400": { "description": "Validation error or email already exists" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Refresh access token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["refreshToken"],
+                "properties": {
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Token refreshed" },
+          "401": { "description": "Invalid refresh token" }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Get current user",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Current user info" },
+          "401": { "description": "Not authenticated" }
+        }
+      }
+    },
+    "/api/orgs": {
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "List user's organizations",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of organizations" }
+        }
+      },
+      "post": {
+        "tags": ["Organizations"],
+        "summary": "Create organization",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Organization created" }
+        }
+      }
+    },
+    "/api/orgs/{orgId}": {
+      "get": {
+        "tags": ["Organizations"],
+        "summary": "Get organization details",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Organization details" },
+          "404": { "description": "Organization not found" }
+        }
+      }
+    },
+    "/api/locations/{locationId}": {
+      "get": {
+        "tags": ["Locations"],
+        "summary": "Get location details",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "locationId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Location details" }
+        }
+      }
+    },
+    "/api/scans/run": {
+      "post": {
+        "tags": ["Scans"],
+        "summary": "Start a new scan",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["locationId", "inputPayload"],
+                "properties": {
+                  "locationId": { "type": "string" },
+                  "scanType": { "type": "string", "enum": ["FREE", "PAID", "SCHEDULED"] },
+                  "inputPayload": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": { "description": "Scan queued" }
+        }
+      }
+    },
+    "/api/scans/{scanId}": {
+      "get": {
+        "tags": ["Scans"],
+        "summary": "Get scan details",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "scanId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Scan details" }
+        }
+      }
+    },
+    "/api/locations/{locationId}/metrics": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Get location metrics",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "locationId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Location metrics" }
+        }
+      }
+    },
+    "/api/billing/status": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Get subscription status",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Subscription status" }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List all users (admin only)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": { "description": "List of users" },
+          "403": { "description": "Not authorized" }
+        }
+      }
+    }
+  }
+}
+
+
+

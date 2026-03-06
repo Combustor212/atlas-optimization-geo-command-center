@@ -4,33 +4,45 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed": "node scripts/seed-mock-data.mjs",
+    "seed:subscriptions": "node scripts/seed-subscriptions.mjs",
+    "worker": "npx tsx services/worker/index.ts",
+    "worker:dev": "dotenv -e .env.local -- npx tsx services/worker/index.ts"
   },
   "dependencies": {
+    "@google-analytics/data": "^5.2.1",
     "@react-pdf/renderer": "^4.3.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "dotenv": "^17.3.1",
+    "googleapis": "^171.4.0",
     "lucide-react": "^0.563.0",
     "next": "14.2.35",
+    "openai": "^6.22.0",
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^3.7.0",
     "stripe": "^20.3.1",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv-cli": "^7.4.4",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }

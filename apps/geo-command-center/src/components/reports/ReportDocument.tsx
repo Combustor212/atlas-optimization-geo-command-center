@@ -88,19 +88,29 @@ const styles = StyleSheet.create({
 interface ReportData {
   clientName: string
   generatedAt: string
+  dateRange: string
   locations: {
     name: string
     rank: number | null
+    previousRank: number | null
+    rankChange: number
     organicClicks: number
     reviews: number
     calls: number
     estimatedRevenue: number
   }[]
   totals: {
+    locations: number
+    avgRank: number
     organicClicks: number
     reviews: number
     calls: number
     revenue: number
+  }
+  highlights: {
+    topPerformer: string
+    biggestImprovement: string
+    totalImprovement: string
   }
 }
 
@@ -119,56 +129,100 @@ export function ReportDocument({ data }: ReportDocumentProps) {
           <Text style={styles.title}>GEO Performance Report</Text>
           <Text style={styles.subtitle}>{data.clientName}</Text>
           <Text style={styles.subtitle}>
-            Generated {new Date(data.generatedAt).toLocaleDateString()}
+            Generated {new Date(data.generatedAt).toLocaleDateString()} • {data.dateRange}
           </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Summary</Text>
+          <Text style={styles.sectionTitle}>Executive Summary</Text>
+          <View style={styles.row}>
+            <Text style={styles.label}>Total Locations</Text>
+            <Text style={styles.value}>{data.totals.locations}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Average Map Rank</Text>
+            <Text style={styles.value}>{data.totals.avgRank.toFixed(1)}</Text>
+          </View>
           <View style={styles.row}>
             <Text style={styles.label}>Organic Clicks</Text>
-            <Text style={styles.value}>{data.totals.organicClicks}</Text>
+            <Text style={styles.value}>{data.totals.organicClicks.toLocaleString()}</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Calls Generated</Text>
-            <Text style={styles.value}>{data.totals.calls}</Text>
+            <Text style={styles.value}>{data.totals.calls.toLocaleString()}</Text>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Reviews Gained</Text>
-            <Text style={styles.value}>{data.totals.reviews}</Text>
+            <Text style={styles.value}>{data.totals.reviews.toLocaleString()}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>Est. Revenue Lift</Text>
+            <Text style={styles.label}>Est. Monthly Revenue Lift</Text>
             <Text style={styles.value}>{formatCurrency(data.totals.revenue)}</Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Location Breakdown</Text>
+          <Text style={styles.sectionTitle}>Key Highlights</Text>
+          <View style={styles.row}>
+            <Text style={styles.label}>Top Performer</Text>
+            <Text style={styles.value}>{data.highlights.topPerformer}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Biggest Improvement</Text>
+            <Text style={styles.value}>{data.highlights.biggestImprovement}</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Overall Progress</Text>
+            <Text style={styles.value}>{data.highlights.totalImprovement}</Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Location Performance Breakdown</Text>
           <View style={styles.table}>
             <View style={styles.tableHeader}>
               <Text style={styles.col1}>Location</Text>
               <Text style={styles.col2}>Rank</Text>
-              <Text style={styles.col3}>Clicks</Text>
-              <Text style={styles.col4}>Calls</Text>
-              <Text style={styles.col5}>Reviews</Text>
-              <Text style={styles.col6}>Est. Revenue</Text>
+              <Text style={styles.col3}>Rank Δ</Text>
+              <Text style={styles.col4}>Clicks</Text>
+              <Text style={styles.col5}>Calls</Text>
+              <Text style={styles.col6}>Revenue</Text>
             </View>
             {data.locations.map((loc) => (
               <View key={loc.name} style={styles.tableRow}>
                 <Text style={styles.col1}>{loc.name}</Text>
                 <Text style={styles.col2}>{loc.rank ?? '—'}</Text>
-                <Text style={styles.col3}>{loc.organicClicks}</Text>
-                <Text style={styles.col4}>{loc.calls}</Text>
-                <Text style={styles.col5}>{loc.reviews}</Text>
+                <Text style={styles.col3}>
+                  {loc.rankChange !== 0 ? `${loc.rankChange > 0 ? '+' : ''}${loc.rankChange.toFixed(0)}%` : '—'}
+                </Text>
+                <Text style={styles.col4}>{loc.organicClicks.toLocaleString()}</Text>
+                <Text style={styles.col5}>{loc.calls.toLocaleString()}</Text>
                 <Text style={styles.col6}>{formatCurrency(loc.estimatedRevenue)}</Text>
               </View>
             ))}
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ROI Analysis</Text>
+          <View style={styles.row}>
+            <Text style={styles.label}>Total Estimated Revenue Impact</Text>
+            <Text style={styles.value}>{formatCurrency(data.totals.revenue)}/month</Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.label}>Annual Revenue Projection</Text>
+            <Text style={styles.value}>{formatCurrency(data.totals.revenue * 12)}/year</Text>
+          </View>
+          <View style={{...styles.row, marginTop: 10}}>
+            <Text style={{fontSize: 9, color: '#64748b', fontStyle: 'italic'}}>
+              Revenue estimates based on ranking improvements, average ticket size, and conversion rates.
+              Actual results may vary based on seasonality and market conditions.
+            </Text>
+          </View>
+        </View>
+
         <Text style={styles.footer}>
-          GEO Command Center • ROI & Performance Report • Confidential
+          GEO Command Center • Professional Performance Report • Confidential & Proprietary
         </Text>
       </Page>
     </Document>

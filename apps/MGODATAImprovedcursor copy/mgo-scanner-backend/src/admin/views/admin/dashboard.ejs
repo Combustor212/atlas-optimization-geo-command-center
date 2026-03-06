@@ -1,0 +1,48 @@
+<div class="header">
+  <h1><%= title %></h1>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <h3>Total Users</h3>
+    <div class="value"><%= stats.users %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Total Organizations</h3>
+    <div class="value"><%= stats.orgs %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Total Locations</h3>
+    <div class="value"><%= stats.locations %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Total Scans</h3>
+    <div class="value"><%= stats.scans %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Scans (Last 24h)</h3>
+    <div class="value"><%= stats.scansLast24h %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Scans (Last 7d)</h3>
+    <div class="value"><%= stats.scansLast7d %></div>
+  </div>
+  <div class="stat-card">
+    <h3>Failed Jobs</h3>
+    <div class="value" style="color: <%= stats.failedJobs > 0 ? '#e74c3c' : '#27ae60' %>">
+      <%= stats.failedJobs %>
+    </div>
+  </div>
+</div>
+
+<div class="content">
+  <h2>Quick Links</h2>
+  <p style="margin-top: 20px;">
+    <a href="/admin/users" class="btn">View All Users</a>
+    <a href="/admin/orgs" class="btn" style="margin-left: 10px;">View All Organizations</a>
+    <a href="/admin/scans?status=FAILED" class="btn btn-secondary" style="margin-left: 10px;">View Failed Scans</a>
+  </p>
+</div>
+
+
+

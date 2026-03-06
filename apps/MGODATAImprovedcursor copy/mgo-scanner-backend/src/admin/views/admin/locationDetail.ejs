@@ -1,0 +1,87 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <a href="/admin/locations" class="btn btn-secondary">Back to Locations</a>
+</div>
+
+<div class="content">
+  <h2>Location Details</h2>
+  
+  <div class="detail-row">
+    <div class="detail-label">ID</div>
+    <div class="detail-value"><%= location.id %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Organization</div>
+    <div class="detail-value"><a href="/admin/orgs/<%= location.org.id %>"><%= location.org.name %></a></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Name</div>
+    <div class="detail-value"><%= location.name %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Address</div>
+    <div class="detail-value"><%= location.address || '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">City</div>
+    <div class="detail-value"><%= location.city || '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">State</div>
+    <div class="detail-value"><%= location.state || '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Country</div>
+    <div class="detail-value"><%= location.country %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Google Place ID</div>
+    <div class="detail-value"><%= location.googlePlaceId || '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Website</div>
+    <div class="detail-value"><%= location.website ? `<a href="${location.website}" target="_blank">${location.website}</a>` : '-' %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Phone</div>
+    <div class="detail-value"><%= location.phone || '-' %></div>
+  </div>
+  
+  <h3 style="margin-top: 30px;">Scan History</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Scan ID</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Score</th>
+        <th>Created</th>
+        <th>Completed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% location.scans.forEach(scan => { %>
+      <tr>
+        <td><a href="/admin/scans/<%= scan.id %>"><%= scan.id.substring(0, 12) %>...</a></td>
+        <td><span class="badge badge-secondary"><%= scan.scanType %></span></td>
+        <td><span class="badge badge-<%= scan.status === 'COMPLETE' ? 'success' : scan.status === 'FAILED' ? 'danger' : 'warning' %>"><%= scan.status %></span></td>
+        <td><%= scan.scoreOverall || '-' %></td>
+        <td><%= new Date(scan.createdAt).toLocaleDateString() %></td>
+        <td><%= scan.completedAt ? new Date(scan.completedAt).toLocaleDateString() : '-' %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</div>
+
+
+

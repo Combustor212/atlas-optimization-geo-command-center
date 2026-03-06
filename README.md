@@ -1,6 +1,6 @@
 # Atlas Optimization & GEO Command Center
 
-Unified repository containing both the **GEO Command Center** (agency dashboard for GEO performance tracking) and **Atlas GS** (CRM with businesses, deals, contracts, invoices, and tasks).
+Unified repository containing **GEO Command Center** (agency dashboard for GEO performance tracking), **Atlas GS** (CRM with businesses, deals, contracts, invoices, and tasks), and **MGO Data** (MEO/GEO scanning app with dedicated frontend + backend).
 
 ## Projects
 
@@ -44,6 +44,22 @@ cp .env.example .env.local
 npx prisma generate
 npm run dev
 ```
+
+### 3. MGO Data (`MGODATAImprovedcursor copy/`)
+
+MEO/GEO scanning app with React + Vite frontend and Express backend.
+
+**Stack:** Vite, React, Express, Prisma, Stripe, Google Places API
+
+**Features:** MEO/GEO scoring, scan results, benchmarks, explain jobs, nearby competitors, Stripe billing
+
+```bash
+# From repo root - run backend first (port 3002), then frontend (port 5173)
+npm run dev:mgo-backend   # Terminal 1
+npm run dev:mgo-frontend  # Terminal 2
+```
+
+See `MGODATAImprovedcursor copy/CONNECTION_GUIDE.md` for full setup.
 
 ## Quick Start
 

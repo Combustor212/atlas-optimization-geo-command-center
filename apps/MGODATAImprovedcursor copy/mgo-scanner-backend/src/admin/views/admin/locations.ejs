@@ -1,0 +1,52 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <div class="search-box">
+    <form action="/admin/locations" method="GET">
+      <input type="text" name="q" placeholder="Search by name or city..." value="<%= search %>">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+</div>
+
+<div class="content">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Organization</th>
+        <th>Name</th>
+        <th>City/State</th>
+        <th>Place ID</th>
+        <th>Latest Score</th>
+        <th>Last Scan</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% locations.forEach(location => { %>
+      <tr>
+        <td><a href="/admin/locations/<%= location.id %>"><%= location.id.substring(0, 8) %>...</a></td>
+        <td><%= location.org.name %></td>
+        <td><%= location.name %></td>
+        <td><%= [location.city, location.state].filter(Boolean).join(', ') || '-' %></td>
+        <td><%= location.googlePlaceId ? location.googlePlaceId.substring(0, 15) + '...' : '-' %></td>
+        <td><%= location.latestScore || '-' %></td>
+        <td><%= location.lastScanDate ? new Date(location.lastScanDate).toLocaleDateString() : 'Never' %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <div class="pagination">
+    <% if (pagination.page > 1) { %>
+      <a href="?page=<%= pagination.page - 1 %>&q=<%= search %>">Previous</a>
+    <% } %>
+    <span class="current">Page <%= pagination.page %> of <%= pagination.totalPages %></span>
+    <% if (pagination.page < pagination.totalPages) { %>
+      <a href="?page=<%= pagination.page + 1 %>&q=<%= search %>">Next</a>
+    <% } %>
+    <span>Total: <%= pagination.total %></span>
+  </div>
+</div>
+
+
+

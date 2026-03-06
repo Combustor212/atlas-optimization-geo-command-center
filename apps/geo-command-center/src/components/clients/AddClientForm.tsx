@@ -49,11 +49,26 @@ export function AddClientForm() {
                 />
               </div>
               <div>
+                <label className="mb-1 block text-sm text-[var(--muted)]">Business Name</label>
+                <input
+                  name="business_name"
+                  className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2"
+                />
+              </div>
+              <div>
                 <label className="mb-1 block text-sm text-[var(--muted)]">Email</label>
                 <input
                   name="email"
                   type="email"
                   required
+                  className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-[var(--muted)]">Phone</label>
+                <input
+                  name="phone"
+                  type="tel"
                   className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2"
                 />
               </div>

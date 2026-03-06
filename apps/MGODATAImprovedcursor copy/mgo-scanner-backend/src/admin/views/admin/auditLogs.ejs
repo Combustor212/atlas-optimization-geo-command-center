@@ -1,0 +1,52 @@
+<div class="header">
+  <h1><%= title %></h1>
+</div>
+
+<div class="content">
+  <div class="filter-bar">
+    <form action="/admin/audit-logs" method="GET" style="display: flex; gap: 10px;">
+      <input type="text" name="action" placeholder="Action..." value="<%= filters.action || '' %>">
+      <input type="text" name="userId" placeholder="User ID..." value="<%= filters.userId || '' %>">
+      <input type="text" name="orgId" placeholder="Org ID..." value="<%= filters.orgId || '' %>">
+      <button type="submit" class="btn">Filter</button>
+      <a href="/admin/audit-logs" class="btn btn-secondary">Clear</a>
+    </form>
+  </div>
+  
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Action</th>
+        <th>User</th>
+        <th>Entity</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% logs.forEach(log => { %>
+      <tr>
+        <td><%= new Date(log.createdAt).toLocaleString() %></td>
+        <td><span class="badge badge-info"><%= log.action %></span></td>
+        <td><%= log.user ? log.user.email : 'System' %></td>
+        <td><%= log.entityType || '-' %></td>
+        <td><%= log.details ? JSON.stringify(log.details).substring(0, 50) + '...' : '-' %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <div class="pagination">
+    <% if (pagination.page > 1) { %>
+      <a href="?page=<%= pagination.page - 1 %>&action=<%= filters.action || '' %>&userId=<%= filters.userId || '' %>&orgId=<%= filters.orgId || '' %>">Previous</a>
+    <% } %>
+    <span class="current">Page <%= pagination.page %> of <%= pagination.totalPages %></span>
+    <% if (pagination.page < pagination.totalPages) { %>
+      <a href="?page=<%= pagination.page + 1 %>&action=<%= filters.action || '' %>&userId=<%= filters.userId || '' %>&orgId=<%= filters.orgId || '' %>">Next</a>
+    <% } %>
+    <span>Total: <%= pagination.total %></span>
+  </div>
+</div>
+
+
+

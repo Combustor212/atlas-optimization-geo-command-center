@@ -1,0 +1,11 @@
+{
+  "crons": [
+    { "path": "/api/cron/scheduler", "schedule": "* * * * *" },
+    { "path": "/api/cron/reports", "schedule": "* * * * *" },
+    { "path": "/api/cron/ai-runs", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/geo-ranks", "schedule": "0 */6 * * *" },
+    { "path": "/api/cron/place-details", "schedule": "30 2 * * *" },
+    { "path": "/api/cron/upsells", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/health-scores", "schedule": "30 3 * * *" }
+  ]
+}

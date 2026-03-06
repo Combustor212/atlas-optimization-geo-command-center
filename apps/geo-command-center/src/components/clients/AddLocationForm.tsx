@@ -11,6 +11,30 @@ export function AddLocationForm({ clientId }: AddLocationFormProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [zipLoading, setZipLoading] = useState(false)
+
+  async function handleZipChange(zip: string) {
+    if (zip.length === 5) {
+      setZipLoading(true)
+      try {
+        const response = await fetch(`https://api.zippopotam.us/us/${zip}`)
+        if (response.ok) {
+          const data = await response.json()
+          const cityInput = document.querySelector('input[name="city"]') as HTMLInputElement
+          const stateInput = document.querySelector('input[name="state"]') as HTMLInputElement
+          
+          if (cityInput && stateInput && data.places?.[0]) {
+            cityInput.value = data.places[0]['place name']
+            stateInput.value = data.places[0]['state abbreviation']
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch zip data:', err)
+      } finally {
+        setZipLoading(false)
+      }
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -56,6 +80,19 @@ export function AddLocationForm({ clientId }: AddLocationFormProps) {
               <div>
                 <label className="mb-1 block text-sm text-[var(--muted)]">Address</label>
                 <input name="address" className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-[var(--muted)]">
+                  ZIP Code {zipLoading && <span className="text-xs">(loading...)</span>}
+                </label>
+                <input 
+                  name="zip" 
+                  type="text"
+                  maxLength={5}
+                  placeholder="Enter ZIP to auto-fill city/state"
+                  onChange={(e) => handleZipChange(e.target.value)}
+                  className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2" 
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>

@@ -1,0 +1,82 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <a href="/admin/scans" class="btn btn-secondary">Back to Scans</a>
+</div>
+
+<div class="content">
+  <h2>Scan Details</h2>
+  
+  <div class="detail-row">
+    <div class="detail-label">ID</div>
+    <div class="detail-value"><%= scan.id %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Organization</div>
+    <div class="detail-value">
+      <% if (scan.location && scan.location.org) { %>
+        <a href="/admin/orgs/<%= scan.location.org.id %>"><%= scan.location.org.name %></a>
+      <% } else { %>
+        N/A
+      <% } %>
+    </div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Location</div>
+    <div class="detail-value">
+      <% if (scan.location) { %>
+        <a href="/admin/locations/<%= scan.location.id %>"><%= scan.location.name %></a>
+      <% } else { %>
+        N/A
+      <% } %>
+    </div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Type</div>
+    <div class="detail-value"><span class="badge badge-secondary"><%= scan.scanType %></span></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Status</div>
+    <div class="detail-value"><span class="badge badge-<%= scan.status === 'COMPLETE' ? 'success' : scan.status === 'FAILED' ? 'danger' : 'warning' %>"><%= scan.status %></span></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Overall Score</div>
+    <div class="detail-value"><strong><%= scan.scoreOverall || 'N/A' %></strong></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Created</div>
+    <div class="detail-value"><%= new Date(scan.createdAt).toLocaleString() %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Completed</div>
+    <div class="detail-value"><%= scan.completedAt ? new Date(scan.completedAt).toLocaleString() : 'Not yet' %></div>
+  </div>
+  
+  <% if (scan.user) { %>
+  <div class="detail-row">
+    <div class="detail-label">Run By</div>
+    <div class="detail-value"><a href="/admin/users/<%= scan.user.id %>"><%= scan.user.email %></a></div>
+  </div>
+  <% } %>
+  
+  <h3 style="margin-top: 30px;">Score Breakdown</h3>
+  <div class="json-viewer"><%= scoreBreakdownJson %></div>
+  
+  <h3 style="margin-top: 30px;">Input Payload</h3>
+  <div class="json-viewer"><%= inputPayloadJson %></div>
+  
+  <h3 style="margin-top: 30px;">Result Payload</h3>
+  <details>
+    <summary style="cursor: pointer; font-weight: bold; padding: 10px; background: #f4f4f4; border-radius: 4px;">Click to expand result payload</summary>
+    <div class="json-viewer" style="margin-top: 10px;"><%= resultPayloadJson %></div>
+  </details>
+</div>
+
+
+

@@ -38,42 +38,15 @@ export default async function DashboardPage() {
     getRevenueCollectedData(agencyId),
   ])
 
-  const statCards = [
-    {
-      label: 'Total MRR',
-      value: formatCurrency(metrics.mrr),
-      icon: DollarSign,
-    },
-    {
-      label: 'Cash Collected (This Month)',
-      value: formatCurrency(metrics.cashCollected),
-      icon: CreditCard,
-    },
-    {
-      label: 'Setup Revenue (This Month)',
-      value: formatCurrency(metrics.setupRevenue),
-      icon: Wrench,
-    },
-    {
-      label: 'Active Clients',
-      value: String(metrics.activeClients),
-      icon: Users,
-    },
-    {
-      label: 'Locations Managed',
-      value: String(metrics.locationsManaged),
-      icon: MapPin,
-    },
-    {
-      label: 'Churn Rate',
-      value: `${metrics.churnRate}%`,
-      icon: TrendingUp,
-    },
-    {
-      label: 'Avg Revenue Per Client',
-      value: formatCurrency(metrics.avgRevenuePerClient),
-      icon: DollarSign,
-    },
+  const iconMap = { DollarSign, CreditCard, Wrench, Users, MapPin, TrendingUp }
+  const statCards: { label: string; value: string; iconKey: keyof typeof iconMap }[] = [
+    { label: 'Total MRR', value: formatCurrency(metrics.mrr), iconKey: 'DollarSign' },
+    { label: 'Cash Collected (This Month)', value: formatCurrency(metrics.cashCollected), iconKey: 'CreditCard' },
+    { label: 'Setup Revenue (This Month)', value: formatCurrency(metrics.setupRevenue), iconKey: 'Wrench' },
+    { label: 'Active Clients', value: String(metrics.activeClients), iconKey: 'Users' },
+    { label: 'Locations Managed', value: String(metrics.locationsManaged), iconKey: 'MapPin' },
+    { label: 'Churn Rate', value: `${metrics.churnRate}%`, iconKey: 'TrendingUp' },
+    { label: 'Avg Revenue Per Client', value: formatCurrency(metrics.avgRevenuePerClient), iconKey: 'DollarSign' },
   ]
 
   return (
@@ -89,7 +62,7 @@ export default async function DashboardPage() {
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat, i) => {
-          const Icon = stat.icon
+          const Icon = iconMap[stat.iconKey]
           return (
             <Card
               key={stat.label}
@@ -117,14 +90,14 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle>MRR Growth Over Time</CardTitle>
           </CardHeader>
-          <MRRChart data={mrrData} />
+          <MRRChart initialData={mrrData} />
         </Card>
 
         <Card className="animate-in-delay-2">
           <CardHeader>
             <CardTitle>Revenue Collected Over Time</CardTitle>
           </CardHeader>
-          <RevenueChart data={revenueData} />
+          <RevenueChart initialData={revenueData} />
         </Card>
       </div>
     </div>

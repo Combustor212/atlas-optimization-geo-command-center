@@ -1,0 +1,50 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <div class="search-box">
+    <form action="/admin/orgs" method="GET">
+      <input type="text" name="q" placeholder="Search by name..." value="<%= search %>">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+</div>
+
+<div class="content">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Owner</th>
+        <th>Members</th>
+        <th>Locations</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% orgs.forEach(org => { %>
+      <tr>
+        <td><a href="/admin/orgs/<%= org.id %>"><%= org.id.substring(0, 8) %>...</a></td>
+        <td><%= org.name %></td>
+        <td><%= org.owner.email %></td>
+        <td><%= org._count.members %></td>
+        <td><%= org._count.locations %></td>
+        <td><%= new Date(org.createdAt).toLocaleDateString() %></td>
+      </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  
+  <div class="pagination">
+    <% if (pagination.page > 1) { %>
+      <a href="?page=<%= pagination.page - 1 %>&q=<%= search %>">Previous</a>
+    <% } %>
+    <span class="current">Page <%= pagination.page %> of <%= pagination.totalPages %></span>
+    <% if (pagination.page < pagination.totalPages) { %>
+      <a href="?page=<%= pagination.page + 1 %>&q=<%= search %>">Next</a>
+    <% } %>
+    <span>Total: <%= pagination.total %></span>
+  </div>
+</div>
+
+
+

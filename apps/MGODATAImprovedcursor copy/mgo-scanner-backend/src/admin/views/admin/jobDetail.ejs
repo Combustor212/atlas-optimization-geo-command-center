@@ -1,0 +1,60 @@
+<div class="header">
+  <h1><%= title %></h1>
+  <a href="/admin/jobs" class="btn btn-secondary">Back to Jobs</a>
+</div>
+
+<div class="content">
+  <h2>Job Details</h2>
+  
+  <div class="detail-row">
+    <div class="detail-label">ID</div>
+    <div class="detail-value"><%= job.id %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Type</div>
+    <div class="detail-value"><span class="badge badge-secondary"><%= job.type %></span></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Status</div>
+    <div class="detail-value"><span class="badge badge-<%= job.status === 'COMPLETE' ? 'success' : job.status === 'FAILED' ? 'danger' : 'warning' %>"><%= job.status %></span></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Attempts</div>
+    <div class="detail-value"><%= job.attempts %> / <%= job.maxAttempts %></div>
+  </div>
+  
+  <div class="detail-row">
+    <div class="detail-label">Created</div>
+    <div class="detail-value"><%= new Date(job.createdAt).toLocaleString() %></div>
+  </div>
+  
+  <% if (job.startedAt) { %>
+  <div class="detail-row">
+    <div class="detail-label">Started</div>
+    <div class="detail-value"><%= new Date(job.startedAt).toLocaleString() %></div>
+  </div>
+  <% } %>
+  
+  <% if (job.completedAt) { %>
+  <div class="detail-row">
+    <div class="detail-label">Completed</div>
+    <div class="detail-value"><%= new Date(job.completedAt).toLocaleString() %></div>
+  </div>
+  <% } %>
+  
+  <% if (job.errorMessage) { %>
+  <div class="detail-row">
+    <div class="detail-label">Error</div>
+    <div class="detail-value" style="color: #e74c3c;"><%= job.errorMessage %></div>
+  </div>
+  <% } %>
+  
+  <h3 style="margin-top: 30px;">Job Payload</h3>
+  <div class="json-viewer"><%= payloadJson %></div>
+</div>
+
+
+

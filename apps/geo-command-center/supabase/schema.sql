@@ -34,6 +34,8 @@ CREATE TABLE clients (
   agency_id UUID NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   email TEXT NOT NULL,
+  phone TEXT,
+  business_name TEXT,
   stripe_customer_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -294,7 +296,7 @@ CREATE POLICY "Calls via location"
     location_id IN (SELECT l.id FROM locations l JOIN clients c ON l.client_id = c.id WHERE c.agency_id = get_user_agency_id() OR c.id = get_user_client_id())
   );
 CREATE POLICY "Profiles own or agency"
-  ON profiles FOR ALL USING (id = auth.uid() OR agency_id = get_user_agency_id());
+  ON profiles FOR ALL USING (id = (SELECT auth.uid()) OR agency_id = get_user_agency_id());
 
 -- Auto-create profile on signup
 CREATE OR REPLACE FUNCTION handle_new_user()

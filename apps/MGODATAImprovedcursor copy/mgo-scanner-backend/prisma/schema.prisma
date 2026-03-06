@@ -1,0 +1,419 @@
+// MGO Backend - Production Database Schema
+// Multi-tenant architecture with full scan history tracking
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// USER & AUTH
+// ============================================================================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String?  // Null if OAuth user
+  name          String?
+  role          UserRole @default(USER)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
+  
+  // OAuth fields (optional)
+  oauthProvider String?
+  oauthId       String?
+  
+  // Relations
+  ownedOrganizations  Organization[]        @relation("OrgOwner")
+  organizationMembers OrganizationMember[]
+  scans               Scan[]
+  auditLogs           AuditLog[]
+  
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+// ============================================================================
+// ORGANIZATIONS & LOCATIONS (Multi-tenant)
+// ============================================================================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique // URL-friendly identifier
+  
+  ownerId   String
+  owner     User     @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  members       OrganizationMember[]
+  locations     Location[]
+  scans         Scan[]
+  subscriptions Subscription[]
+  auditLogs     AuditLog[]
+  
+  @@index([ownerId])
+  @@index([slug])
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id     String @id @default(uuid())
+  
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role   OrgMemberRole @default(MEMBER)
+  
+  joinedAt DateTime @default(now())
+  
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+enum OrgMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Location {
+  id    String @id @default(uuid())
+  
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  name  String
+  
+  // Address fields
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  country     String    @default("United States")
+  
+  // Contact info
+  website String?
+  phone   String?
+  
+  // Google Business Profile
+  googlePlaceId String? @unique
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  scans      Scan[]
+  scanDeltas ScanDelta[]
+  
+  @@index([orgId])
+  @@index([googlePlaceId])
+  @@map("locations")
+}
+
+// ============================================================================
+// SCANS (Complete history tracking)
+// ============================================================================
+
+model Scan {
+  id String @id @default(uuid())
+  
+  // Relationships
+  orgId      String?
+  org        Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  
+  locationId String?
+  location   Location?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  
+  userId     String?
+  user       User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Scan metadata
+  scanType   ScanType   @default(FREE)
+  status     ScanStatus @default(QUEUED)
+  source     ScanSource @default(WEB)
+  
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  // Input data (what user submitted)
+  inputPayload Json // { businessName, location, email, placeId, etc }
+  
+  // Output data (complete scan results)
+  resultPayload Json? // Full MEO + GEO results
+  
+  // Scores (denormalized for quick queries)
+  scoreOverall  Float?
+  scoreMEO      Float?
+  scoreGEO      Float?
+  
+  // Detailed breakdown
+  scoreBreakdown Json? // { meo: {...}, geo: {...}, drivers: [...] }
+  
+  // Algorithm version for reproducibility
+  version String @default("v1.0")
+  
+  // Error tracking
+  errorMessage String?
+  retryCount   Int     @default(0)
+  
+  // Relations
+  deltasFrom ScanDelta[] @relation("FromScan")
+  deltasTo   ScanDelta[] @relation("ToScan")
+  
+  @@index([orgId])
+  @@index([locationId])
+  @@index([userId])
+  @@index([status])
+  @@index([scanType])
+  @@index([createdAt])
+  @@map("scans")
+}
+
+enum ScanType {
+  FREE
+  PAID
+  SCHEDULED
+  API
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+enum ScanSource {
+  WEB
+  APP
+  ADMIN
+  API
+  SCHEDULED
+}
+
+// ============================================================================
+// SCAN DELTAS (Track improvements over time)
+// ============================================================================
+
+model ScanDelta {
+  id String @id @default(uuid())
+  
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  
+  fromScanId String
+  fromScan   Scan   @relation("FromScan", fields: [fromScanId], references: [id], onDelete: Cascade)
+  
+  toScanId   String
+  toScan     Scan   @relation("ToScan", fields: [toScanId], references: [id], onDelete: Cascade)
+  
+  // Delta values
+  deltaOverall Float
+  deltaMEO     Float?
+  deltaGEO     Float?
+  
+  // Detailed changes
+  deltaBreakdown Json // { improved: [...], declined: [...], unchanged: [...] }
+  
+  createdAt DateTime @default(now())
+  
+  @@index([locationId])
+  @@index([createdAt])
+  @@map("scan_deltas")
+}
+
+// ============================================================================
+// BILLING & SUBSCRIPTIONS
+// ============================================================================
+
+model Subscription {
+  id String @id @default(uuid())
+  
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  
+  // Stripe integration
+  provider       BillingProvider @default(STRIPE)
+  customerId     String          @unique
+  subscriptionId String          @unique
+  
+  // Plan details
+  plan   SubscriptionPlan   @default(BASIC)
+  status SubscriptionStatus @default(ACTIVE)
+  
+  // Billing cycle
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean  @default(false)
+  canceledAt         DateTime?
+  
+  // Trial
+  trialStart DateTime?
+  trialEnd   DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([orgId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+enum BillingProvider {
+  STRIPE
+  PADDLE
+}
+
+enum SubscriptionPlan {
+  FREE
+  BASIC
+  PRO
+  ELITE
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+// ============================================================================
+// AUDIT LOGS (Compliance & debugging)
+// ============================================================================
+
+model AuditLog {
+  id String @id @default(uuid())
+  
+  orgId  String?
+  org    Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action String // "scan.created", "location.updated", "member.added", etc
+  
+  entityType String? // "scan", "location", "organization", etc
+  entityId   String?
+  
+  details Json? // Contextual data
+  
+  ipAddress String?
+  userAgent String?
+  
+  createdAt DateTime @default(now())
+  
+  @@index([orgId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// BACKGROUND JOBS (Simple DB-backed queue)
+// ============================================================================
+
+model Job {
+  id String @id @default(uuid())
+  
+  type   JobType   @default(SCAN)
+  status JobStatus @default(PENDING)
+  
+  payload Json // Job-specific data
+  
+  priority Int @default(0) // Higher = more important
+  
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  
+  errorMessage String?
+  
+  scheduledFor DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([status])
+  @@index([type])
+  @@index([scheduledFor])
+  @@map("jobs")
+}
+
+enum JobType {
+  SCAN
+  DELTA_CALCULATION
+  EMAIL
+  EXPORT
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETE
+  FAILED
+  CANCELLED
+}
+
+// ============================================================================
+// FREE SCAN SUBMISSIONS (from earlier requirement)
+// Note: Keeping this separate from Scans for marketing/sales purposes
+// ============================================================================
+
+model FreeScanSubmission {
+  id String @id @default(uuid())
+  
+  scanId String? @unique // Link to Scan if executed
+  
+  formData Json // All form fields
+  metadata Json // UTMs, referrer, IP (hashed), etc
+  
+  emailStatus      EmailStatus @default(PENDING)
+  emailSentAt      DateTime?
+  emailError       String?
+  emailRetryCount  Int         @default(0)
+  
+  idempotencyKey String @unique
+  
+  createdAt DateTime @default(now())
+  
+  @@index([emailStatus])
+  @@index([createdAt])
+  @@map("free_scan_submissions")
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRY
+}

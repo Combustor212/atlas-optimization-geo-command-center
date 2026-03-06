@@ -98,3 +98,75 @@ export async function getClientWithLocations(clientId: string) {
 
   return { client, locations: locationsWithMetrics, totals }
 }
+
+export async function getLocationRankingHistory(locationId: string, days = 30) {
+  const supabase = await createClient()
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  
+  const { data } = await supabase
+    .from('rankings')
+    .select('map_pack_position, organic_position, recorded_at')
+    .eq('location_id', locationId)
+    .gte('recorded_at', startDate)
+    .order('recorded_at', { ascending: true })
+
+  return (data || []).map((r) => ({
+    date: new Date(r.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    mapRank: r.map_pack_position,
+    organicRank: r.organic_position,
+  }))
+}
+
+export async function getLocationTrafficHistory(locationId: string, days = 30) {
+  const supabase = await createClient()
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  
+  const { data } = await supabase
+    .from('traffic_metrics')
+    .select('organic_clicks, impressions, recorded_at')
+    .eq('location_id', locationId)
+    .gte('recorded_at', startDate)
+    .order('recorded_at', { ascending: true })
+
+  return (data || []).map((t) => ({
+    date: new Date(t.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    clicks: t.organic_clicks,
+    impressions: t.impressions,
+  }))
+}
+
+export async function getLocationCallsReviewsHistory(locationId: string, days = 30) {
+  const supabase = await createClient()
+  const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  
+  const [callsRes, reviewsRes] = await Promise.all([
+    supabase
+      .from('calls_tracked')
+      .select('call_count, recorded_at')
+      .eq('location_id', locationId)
+      .gte('recorded_at', startDate)
+      .order('recorded_at', { ascending: true }),
+    supabase
+      .from('reviews')
+      .select('count, recorded_at')
+      .eq('location_id', locationId)
+      .gte('recorded_at', startDate)
+      .order('recorded_at', { ascending: true }),
+  ])
+
+  // Merge by date
+  const dates = new Set([
+    ...(callsRes.data || []).map((c) => c.recorded_at),
+    ...(reviewsRes.data || []).map((r) => r.recorded_at),
+  ])
+
+  return Array.from(dates).sort().map((date) => {
+    const calls = callsRes.data?.find((c) => c.recorded_at === date)?.call_count ?? 0
+    const reviews = reviewsRes.data?.find((r) => r.recorded_at === date)?.count ?? 0
+    return {
+      date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      calls,
+      reviews,
+    }
+  })
+}
