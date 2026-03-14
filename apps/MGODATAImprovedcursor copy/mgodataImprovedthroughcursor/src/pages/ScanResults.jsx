@@ -971,6 +971,24 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       const isDemo = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
       const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
 
+      // If stored result has no GEO score, it's stale — drop it so we re-scan with the latest backend
+      if (stored && !isDemo) {
+        try {
+          const parsed = JSON.parse(stored);
+          const hasGeoScore = typeof parsed?.geo?.score === 'number' || typeof parsed?.scores?.geo === 'number';
+          if (!hasGeoScore) {
+            sessionStorage.removeItem('scanResults');
+            sessionStorage.removeItem('planRecommendation');
+            setIsLoading(false);
+            return;
+          }
+        } catch (_) {
+          sessionStorage.removeItem('scanResults');
+          setIsLoading(false);
+          return;
+        }
+      }
+
       if (!stored && !isDemo) {
         if (isEmbed) {
           return;
