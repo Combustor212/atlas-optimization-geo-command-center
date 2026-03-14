@@ -266,7 +266,7 @@ export async function POST(req: NextRequest) {
     const phone = (body.phone as string)?.trim() || ''
     if (email || phone) {
       try {
-        const agencySlug = process.env.AGS_LEADS_AGENCY_SLUG || 'my-agency'
+        const agencySlug = (process.env.AGS_LEADS_AGENCY_SLUG || 'my-agency').trim()
         const admin = getSupabaseAdmin()
         const { data: agency, error: agencyError } = await admin.from('agencies').select('id').eq('slug', agencySlug).single()
 
