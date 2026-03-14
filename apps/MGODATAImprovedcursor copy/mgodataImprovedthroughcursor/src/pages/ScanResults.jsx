@@ -579,7 +579,7 @@ function scanReportToScanData(scanReport, leadMeta = {}) {
       meoExplain: meoExplain || {
         rating: business.rating,
         totalReviews: business.user_ratings_total,
-        photoCount: meoExplain?.photoCount ?? (place.photos?.length || 0),
+        photoCount: meoExplain?.photoCount ?? place.photoCount ?? (place.photos?.length || 0),
         hasWebsite: !!business.website,
         hasPhone: !!(business.international_phone_number || business.formatted_phone_number),
         hasHours: !!business.opening_hours,
@@ -1963,7 +1963,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                     <div className="space-y-6">
                       <section>
                         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Data Used in This Report</h3>
-                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
+                        <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-4">
                           {[
                             { label: 'Rating', value: rating != null ? rating.toFixed(1) : '—' },
                             { label: 'Reviews', value: totalReviews != null ? totalReviews.toLocaleString() : '—' },
@@ -1972,9 +1972,9 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                             { label: 'Phone', value: (meoExplain?.hasPhone ?? !!(business?.international_phone_number || business?.formatted_phone_number || business?.internationalPhoneNumber)) ? 'Yes' : 'No' },
                             { label: 'Hours', value: (meoExplain?.hasHours ?? !!(business?.opening_hours)) ? 'Complete' : 'Missing' }
                           ].map(({ label, value }) => (
-                            <div key={label} className="bg-white rounded-lg border border-slate-100 px-3 py-2.5">
-                              <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">{label}</p>
-                              <p className="text-sm font-semibold text-slate-900 mt-1">{value}</p>
+                            <div key={label} className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-4 flex flex-col items-center justify-center text-center min-h-[76px]">
+                              <p className="text-[11px] font-medium text-slate-500 uppercase tracking-wide whitespace-nowrap">{label}</p>
+                              <p className="text-sm font-semibold text-slate-900 mt-1.5 whitespace-nowrap">{String(value)}</p>
                             </div>
                           ))}
                         </div>

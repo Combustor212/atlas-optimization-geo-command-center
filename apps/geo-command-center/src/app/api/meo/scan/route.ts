@@ -257,6 +257,7 @@ export async function POST(req: NextRequest) {
       user_ratings_total: place.user_ratings_total,
       opening_hours: place.opening_hours,
       types: place.types,
+      photoCount: placePhotoCount,
     }
 
     // ── 7. Lead capture ───────────────────────────────────────────────────
