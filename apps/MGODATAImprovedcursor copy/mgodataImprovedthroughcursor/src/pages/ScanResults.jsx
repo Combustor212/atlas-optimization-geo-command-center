@@ -1751,7 +1751,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   })();
   
   const optimizationPercentage = finalScore;
-  const meoExplain = scanData?.meoBackendData?.meoExplain;
+  const meoExplain = scanData?.meoBackendData?.meoExplain ?? scanData?.meoBackendData;
   const marketContext = meoExplain?.marketContext;
   const address = business?.address || business?.formattedAddress || '';
   const cityState = address.split(',').slice(1, 3).map((s) => s.trim()).filter(Boolean).join(', ') || scanData?.metadata?.city || '';
