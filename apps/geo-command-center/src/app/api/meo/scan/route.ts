@@ -268,8 +268,50 @@ export async function POST(req: NextRequest) {
       try {
         const agencySlug = process.env.AGS_LEADS_AGENCY_SLUG || 'my-agency'
         const admin = getSupabaseAdmin()
-        const { data: agency } = await admin.from('agencies').select('id').eq('slug', agencySlug).single()
-        if (agency) {
+        const { data: agency, error: agencyError } = await admin.from('agencies').select('id').eq('slug', agencySlug).single()
+
+        if (agencyError || !agency) {
+          console.error('[MEO Scan] Agency not found for slug:', agencySlug, agencyError?.message)
+          // Try to get the first available agency as fallback
+          const { data: firstAgency } = await admin.from('agencies').select('id').limit(1).single()
+          if (!firstAgency) {
+            console.error('[MEO Scan] No agencies found in database — lead not saved')
+            leadForwardStatus = 'error_no_agency'
+          } else {
+            console.warn('[MEO Scan] Using fallback agency id:', firstAgency.id)
+            await admin.from('leads').insert({
+              agency_id: firstAgency.id,
+              source: 'scan',
+              name: businessName || (place.name as string),
+              email: email || 'scan@lead.local',
+              phone: phone || null,
+              business_name: businessName || (place.name as string),
+              metadata: {
+                meo_score: meoScore,
+                geo_score: geoScore,
+                overall_score: overall,
+                meoScore,
+                geoScore,
+                overallScore: overall,
+                address: place.formatted_address,
+                place_id: placeId,
+                city: (body.city as string) || undefined,
+                state: (body.state as string) || undefined,
+                zipCode: (body.zipCode as string) || undefined,
+                country: (body.country as string) || undefined,
+                website: (place.website as string) || undefined,
+                agency_slug_used: agencySlug,
+                scanReport: {
+                  scores: { meo: meoScore, geo: geoScore, overall, final: overall },
+                  geo: geoObject,
+                  body: meoBody,
+                  place: placeOut,
+                },
+              },
+            })
+            leadForwardStatus = 'forwarded_fallback_agency'
+          }
+        } else {
           await admin.from('leads').insert({
             agency_id: agency.id,
             source: 'scan',
