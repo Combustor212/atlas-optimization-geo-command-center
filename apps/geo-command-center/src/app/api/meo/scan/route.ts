@@ -159,7 +159,8 @@ export async function POST(req: NextRequest) {
     }
 
     const locationStr = location.trim() || (place.formatted_address as string) || ''
-    const placePhotoCount = (place.photos as unknown[] | undefined)?.length ?? 0
+    const clientPhotoCount = typeof body.photoCount === 'number' ? body.photoCount : null
+    const placePhotoCount = clientPhotoCount ?? (place.photos as unknown[] | undefined)?.length ?? 0
 
     // ── 3. MEO Scoring ────────────────────────────────────────────────────
     let meoScore: number
@@ -219,19 +220,22 @@ export async function POST(req: NextRequest) {
     // ── 6. Build consistent meoBody ───────────────────────────────────────
     // When the full engine ran: meoExplain has rating/totalReviews/photoCount/marketContext.
     // When fallback ran: hydrate from raw place so frontend data boxes always show real values.
-    const meoBody = meoExplain ?? {
-      rating: typeof place.rating === 'number' ? place.rating : null,
-      totalReviews: typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null,
-      photoCount: placePhotoCount,
-      hasWebsite: !!place.website,
-      hasPhone: !!(place.formatted_phone_number || place.international_phone_number),
-      hasHours: !!(place.opening_hours),
-      marketContext: null,
-      optimizationTips: [],
-      gbpFacts: { completenessScore: 0 },
-      meoInputsUsed: {},
-      debugStamp: new Date().toISOString(),
-    }
+    // Always override photoCount with the client-provided value if available (beats Places API 10-cap).
+    const meoBody = meoExplain
+      ? { ...meoExplain, photoCount: clientPhotoCount ?? meoExplain.photoCount }
+      : {
+          rating: typeof place.rating === 'number' ? place.rating : null,
+          totalReviews: typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null,
+          photoCount: placePhotoCount,
+          hasWebsite: !!place.website,
+          hasPhone: !!(place.formatted_phone_number || place.international_phone_number),
+          hasHours: !!(place.opening_hours),
+          marketContext: null,
+          optimizationTips: [],
+          gbpFacts: { completenessScore: 0 },
+          meoInputsUsed: {},
+          debugStamp: new Date().toISOString(),
+        }
 
     const geoObject = {
       score: geoScore,

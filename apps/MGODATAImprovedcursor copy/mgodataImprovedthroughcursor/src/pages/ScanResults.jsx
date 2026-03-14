@@ -805,6 +805,7 @@ export default function ScanResults() {
           email: pending.email,
           phone: pending.phone,
           zipCode: pending.postalCode,
+          photoCount: pending.photoCount,
         });
 
         if (!scannerData.success) {
@@ -1967,7 +1968,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                           {[
                             { label: 'Rating', value: rating != null ? rating.toFixed(1) : '—' },
                             { label: 'Reviews', value: totalReviews != null ? totalReviews.toLocaleString() : '—' },
-                            { label: 'Photos', value: photoCount ?? '—' },
+                            { label: 'Photos', value: photoCount != null ? (photoCount >= 10 ? `${photoCount}+` : String(photoCount)) : '—' },
                             { label: 'Website', value: (meoExplain?.hasWebsite ?? !!(business?.website || business?.websiteUri)) ? 'Yes' : 'No' },
                             { label: 'Phone', value: (meoExplain?.hasPhone ?? !!(business?.international_phone_number || business?.formatted_phone_number || business?.internationalPhoneNumber)) ? 'Yes' : 'No' },
                             { label: 'Hours', value: (meoExplain?.hasHours ?? !!(business?.opening_hours)) ? 'Complete' : 'Missing' }

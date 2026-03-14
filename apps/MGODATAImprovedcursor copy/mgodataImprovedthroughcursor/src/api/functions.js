@@ -84,7 +84,7 @@ function calculatePercentile(meoScore, geoScore) {
 // Scanner function - combines Places and OpenAI
 export const scanner = async (params) => {
   try {
-    const { place_id, business_name, city, state, location, country, place_data, email, phone, zipCode } = params;
+    const { place_id, business_name, city, state, location, country, place_data, email, phone, zipCode, photoCount } = params;
     
     // Get place details - use provided place_data from Autocomplete widget
     let placeDetails = null;
@@ -116,7 +116,7 @@ export const scanner = async (params) => {
             }
             
             // Continue with scan processing
-            const scanResult = await processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode });
+            const scanResult = await processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode, photoCount });
             resolve(scanResult);
           }
         );
@@ -139,7 +139,7 @@ export const scanner = async (params) => {
       }
     } else if (business_name && (city || location || country)) {
       // No place_id: call backend directly - it will use findPlaceFromText
-      return await processScan(null, { business_name, city, state, location, country, email, phone, zipCode });
+      return await processScan(null, { business_name, city, state, location, country, email, phone, zipCode, photoCount });
     }
     
     if (!placeDetails) {
@@ -149,7 +149,7 @@ export const scanner = async (params) => {
       };
     }
     
-    return await processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode });
+    return await processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode, photoCount });
   } catch (error) {
     console.error('Scanner error:', error);
     return {
@@ -160,7 +160,7 @@ export const scanner = async (params) => {
 };
 
 // Process scan with place details (placeDetails can be null when backend does lookup)
-async function processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode }) {
+async function processScan(placeDetails, { business_name, city, state, location, country, email, phone, zipCode, photoCount }) {
   
   // ============================================================================
   // CALL BACKEND API - Single Source of Truth for MEO Scoring
@@ -190,6 +190,7 @@ async function processScan(placeDetails, { business_name, city, state, location,
         zipCode: zipCode || undefined,
         country: country || undefined,
         address: placeDetails?.formatted_address || placeDetails?.formattedAddress || undefined,
+        photoCount: photoCount || (placeDetails?.photos || []).length || undefined,
       })
     });
     

@@ -235,7 +235,7 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
       service.getDetails(
         {
           placeId,
-          fields: ['place_id', 'name', 'formatted_address', 'address_components', 'geometry', 'website', 'international_phone_number', 'formatted_phone_number', 'opening_hours', 'rating', 'user_ratings_total', 'types', 'business_status']
+          fields: ['place_id', 'name', 'formatted_address', 'address_components', 'geometry', 'website', 'international_phone_number', 'formatted_phone_number', 'opening_hours', 'rating', 'user_ratings_total', 'types', 'business_status', 'photos']
         },
         (result, status) => {
           if (status === window.google.maps.places.PlacesServiceStatus.OK && result) {
@@ -439,6 +439,7 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
       phone: placeData?.formatted_phone_number || placeData?.international_phone_number || undefined,
       postalCode: postalCode || undefined,
       streetAddress: streetAddress || placeData?.formatted_address,
+      photoCount: (placeData?.photos || []).length || undefined,
     };
 
     sessionStorage.setItem(SCAN_PENDING_KEY, JSON.stringify(scanPending));
@@ -468,12 +469,12 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
       <CardContent className="p-8 lg:p-10 overflow-visible">
         
         {/* Info Banner */}
-        <div className="mb-6 p-4 bg-gradient-to-r from-slate-50 to-slate-100 border-2 border-slate-200 rounded-xl">
+        <div className="mb-6 p-4 bg-gradient-to-r from-blue-50/80 to-slate-50 border-2 border-blue-200/60 rounded-xl">
           <div className="flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-purple-600" />
+            <Sparkles className="w-5 h-5 text-blue-600" />
             <div>
-              <p className="font-bold text-purple-900 text-sm flex items-center gap-2"><Sparkles className="w-4 h-4" /> Smart Search Enabled</p>
-              <p className="text-purple-700 text-xs">
+              <p className="font-bold text-blue-900 text-sm flex items-center gap-2"><Sparkles className="w-4 h-4" /> Smart Search Enabled</p>
+              <p className="text-blue-700 text-xs">
                 Type your business name and select from the dropdown to auto-fill everything!
               </p>
             </div>
@@ -515,7 +516,7 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
                   <Building className="w-4 h-4 inline mr-1" />
                   Business Name *
-                  <Badge className="ml-2 bg-purple-100 text-purple-700">
+                  <Badge className="ml-2 bg-blue-100 text-blue-700">
                     Smart Search
                   </Badge>
                 </label>
@@ -534,12 +535,12 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                   {(isLoadingSuggestions || (showDropdown && suggestions.length > 0)) && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                       {isLoadingSuggestions ? (
-                        <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
                       ) : null}
                     </div>
                   )}
                   {showDropdown && suggestions.length > 0 && (
-                    <div className="absolute z-[10000] w-full mt-1 bg-white border-2 border-purple-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                    <div className="absolute z-[10000] w-full mt-1 bg-white border-2 border-blue-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
                       {suggestions.map((pred, idx) => (
                         <button
                           key={pred.place_id ?? idx}
@@ -549,7 +550,7 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                             e.stopPropagation();
                             handleSelectPrediction(pred);
                           }}
-                          className="w-full px-4 py-3 text-left hover:bg-purple-50 active:bg-purple-100 transition-colors border-b border-slate-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl"
+                          className="w-full px-4 py-3 text-left hover:bg-blue-50 active:bg-blue-100 transition-colors border-b border-slate-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl"
                         >
                           <div className="font-semibold text-sm text-slate-900">
                             {pred.structured_formatting?.main_text ?? pred.description}
