@@ -81,30 +81,51 @@ const AnimatedCounter = ({ value, duration = 2000 }) => {
   return <span>{count}</span>;
 };
 
-const BlurredUnlockSection = ({ children, onUnlock, title }) => (
-  <div>
-    {title && (
-      <h3 className="text-lg font-bold text-slate-900 mb-3">{title}</h3>
-    )}
-    <div className="relative rounded-xl overflow-hidden">
-      <div className="blur-md pointer-events-none select-none [&_*]:pointer-events-none">
-        {children}
+/** Premium locked section — centered overlay card, blurred content visible behind. When isAdminView, shows content unblurred. */
+const BlurredUnlockSection = ({ children, title, onUnlock, isAdminView }) => {
+  if (isAdminView) {
+    return (
+      <div className="space-y-3">
+        {title && (
+          <h3 className="text-base font-semibold text-slate-800">{title}</h3>
+        )}
+        <div className="rounded-xl overflow-hidden border border-slate-200">
+          {children}
+        </div>
       </div>
-      <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 backdrop-blur-sm">
-      <p className="text-slate-700 font-semibold mb-3 text-center px-4">
-        Book a Strategy Session to unlock
-      </p>
-      <Button
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {title && (
+        <h3 className="text-base font-semibold text-slate-800">{title}</h3>
+      )}
+      <div
+        className="relative rounded-xl overflow-hidden border border-slate-200 cursor-pointer group min-h-[280px]"
         onClick={onUnlock}
-        className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold px-6 py-3 rounded-xl shadow-lg flex items-center gap-2"
       >
-        <Phone className="w-4 h-4" />
-        Book a Strategy Session
-      </Button>
+        <div className="blur-[5px] pointer-events-none select-none [&_*]:pointer-events-none min-h-[280px] opacity-90">
+          {children}
+        </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40 group-hover:bg-slate-900/50 transition-colors px-6 py-8">
+          <div className="bg-white rounded-xl shadow-xl p-5 max-w-xs text-center border border-slate-100">
+            <h4 className="font-bold text-slate-900 text-base mb-2">Unlock Your Full Visibility Strategy</h4>
+            <p className="text-slate-600 text-sm mb-4">
+              See competitor gaps, AI search optimization opportunities, and revenue insights.
+            </p>
+            <Button
+              size="sm"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+              onClick={(e) => { e.stopPropagation(); onUnlock?.(); }}
+            >
+              Book a 20-Minute Visibility Audit
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
-    </div>
-  </div>
-);
+  );
+};
 
 const ScoreGaugeCard = ({ score, label, sublabel, color, description, showBeta, delay = 0, debugText, onClick, isClickable = false, status, category }) => {
   const [showTooltip, setShowTooltip] = useState(false);
@@ -479,7 +500,12 @@ const IntegrationSimulationModal = ({ isOpen, onClose, onComplete }) => {
 function normalizeExplain(explainData) {
   if (!explainData) return null;
   
-  // Check if it's valid v2 with queries
+  // v3: GEO component scoring (authority, content, reviews, etc.)
+  if (explainData.version === 'v3' && typeof explainData.geoScore === 'number') {
+    return explainData;
+  }
+  
+  // v2: Query-based evaluation
   const isValidV2 = 
     explainData.version === 'v2' && 
     Array.isArray(explainData.queries) && 
@@ -491,10 +517,81 @@ function normalizeExplain(explainData) {
 }
 
 /**
- * Check if scanData has valid v2 GEO explain
+ * Check if scanData has valid GEO explain (v2 or v3)
  */
 function hasValidExplainV2(explain) {
   return normalizeExplain(explain) !== null;
+}
+
+/** Convert Geo/MGO scanReport payload to AGS scanData format */
+function scanReportToScanData(scanReport, leadMeta = {}) {
+  const scores = scanReport.scores || {};
+  const geo = scanReport.geo || {};
+  const body = scanReport.body || {};
+  const place = scanReport.place || {};
+  const innerBody = body.body || body;
+  const meoExplain = body.meoExplain || innerBody?.meoExplain || innerBody;
+  const marketContext = meoExplain?.marketContext || body.marketContext || innerBody?.marketContext || {};
+
+  const business = {
+    name: place.name || leadMeta.business_name,
+    address: place.formatted_address,
+    formattedAddress: place.formatted_address,
+    formatted_address: place.formatted_address,
+    place_id: place.place_id,
+    placeId: place.place_id,
+    rating: place.rating ?? meoExplain?.rating,
+    user_ratings_total: place.user_ratings_total ?? meoExplain?.totalReviews,
+    reviewCount: place.user_ratings_total ?? meoExplain?.totalReviews,
+    website: place.website,
+    websiteUri: place.website,
+    international_phone_number: place.international_phone_number,
+    formatted_phone_number: place.formatted_phone_number,
+    opening_hours: place.opening_hours,
+    types: place.types,
+  };
+
+  const meoScore = scores.meo ?? body.meoScore ?? innerBody?.meoScore;
+  const geoScore = geo.score ?? scores.geo;
+  const overall = scores.overall ?? scores.final;
+
+  const percentile = marketContext.reviewsPercentile ?? (geoScore != null && meoScore != null ? Math.round((meoScore + geoScore) / 2) : 50);
+
+  return {
+    type: 'local',
+    business,
+    scores: {
+      meo: meoScore,
+      seo: scores.seo ?? null,
+      geo: geoScore,
+      overall,
+      final: overall,
+    },
+    geo: {
+      score: geoScore,
+      status: geo.status || 'ok',
+      category: geo.category,
+      explain: geo.explain,
+      explainJobId: null,
+      algoVersion: geo.algoVersion,
+    },
+    meoBackendData: {
+      meoExplain: meoExplain || {
+        rating: business.rating,
+        totalReviews: business.user_ratings_total,
+        photoCount: meoExplain?.photoCount ?? (place.photos?.length || 0),
+        hasWebsite: !!business.website,
+        hasPhone: !!(business.international_phone_number || business.formatted_phone_number),
+        hasHours: !!business.opening_hours,
+        marketContext,
+        optimizationTips: geo.explain?.optimizationRecommendations || [],
+      },
+      scoringBreakdown: body.scoringBreakdown || innerBody?.scoringBreakdown,
+    },
+    percentile,
+    percentileText: `Top ${100 - percentile}%`,
+    metadata: leadMeta,
+  };
 }
 
 export default function ScanResults() {
@@ -505,6 +602,7 @@ export default function ScanResults() {
   const [scanId, setScanId] = useState(null);
   const [expandedPanel, setExpandedPanel] = useState(null); // 'meo' | 'geo' | null
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isAdminView, setIsAdminView] = useState(false);
   const recoveryJobRequestedRef = useRef(false);
   const [lastHttpStatus, setLastHttpStatus] = useState(null);
   const [lastErrorMessage, setLastErrorMessage] = useState(null);
@@ -512,6 +610,9 @@ export default function ScanResults() {
   const [scanResponseKeys, setScanResponseKeys] = useState(null);
   const [geoResponseKeys, setGeoResponseKeys] = useState(null);
   const navigate = useNavigate();
+
+  const isEmbedMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
+  const containerClass = isEmbedMode ? 'max-w-full w-full min-w-0' : 'max-w-[1040px]';
 
   // ============================================================================
   // SINGLE SOURCE OF TRUTH: Compute scan readiness phase
@@ -543,10 +644,9 @@ export default function ScanResults() {
   const getDerivedGEOStatus = (geo) => {
     if (!geo) return 'failed'; // STRICT: no data = failed, not unknown
     
-    // Priority 1: v2 explain with queries = ready
-    if (geo.explain?.version === 'v2' && 
-        Array.isArray(geo.explain.queries) && 
-        geo.explain.queries.length > 0) {
+    // Priority 1: v2 or v3 explain = ready
+    if ((geo.explain?.version === 'v2' && Array.isArray(geo.explain.queries) && geo.explain.queries.length > 0) ||
+        (geo.explain?.version === 'v3' && typeof geo.explain.geoScore === 'number')) {
       return 'ready';
     }
     
@@ -592,10 +692,13 @@ export default function ScanResults() {
   } = useGEOExplainPolling(explainJobId, shouldPollGEO);
 
   // ============================================================================
-  // GEO READINESS: Only show GEO score when explain is complete
+  // GEO READINESS: Show GEO score when explain is complete OR backend returned a sync score
+  // geoReady = has explain, OR backend returned a numeric score with status 'ok' (no explain needed)
   // ============================================================================
-  const geoReady = hasValidExplain && typeof scanData?.geo?.score === 'number';
-  const geoGenerating = !geoReady && (isPollingLoading || pollStatus === 'polling');
+  const geoSyncScore = typeof scanData?.geo?.score === 'number' && scanData?.geo?.status === 'ok' && !scanData?.geo?.explainJobId;
+  const geoReady = hasValidExplain || geoSyncScore;
+  // Only block when actively polling (jobId exists) — Geo sync response has no jobId, show results immediately
+  const geoGenerating = !!explainJobId && !geoReady && (isPollingLoading || pollStatus === 'polling');
   const geoFailed = !geoReady && (pollingError || pollStatus === 'error' || pollStatus === 'timeout');
   
   // ============================================================================
@@ -865,8 +968,69 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
 
       const stored = sessionStorage.getItem('scanResults');
       const storedPlan = sessionStorage.getItem('planRecommendation');
+      const isDemo = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
+      const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
 
-      if (!stored) {
+      if (!stored && !isDemo) {
+        if (isEmbed) {
+          return;
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      if (isDemo && !stored) {
+        const demoData = {
+          type: 'local',
+          business: {
+            name: 'Demo Business',
+            address: '123 Main St, Cincinnati, OH 45202, USA',
+            formattedAddress: '123 Main St, Cincinnati, OH 45202, USA',
+            place_id: 'demo_place_1',
+            placeId: 'demo_place_1',
+            rating: 4.2,
+            reviewCount: 186,
+            user_ratings_total: 186,
+            website: 'https://example.com',
+            websiteUri: 'https://example.com',
+            international_phone_number: '+1 513-555-0100',
+            formatted_phone_number: '(513) 555-0100',
+            opening_hours: { open_now: true },
+            types: ['restaurant'],
+          },
+          scores: { meo: 72, seo: 65, geo: 68, overall: 68, final: 68 },
+          geo: {
+            score: 68,
+            status: 'ok',
+            explain: { version: 'v3', geoScore: 68, grade: 'C', components: [] },
+            explainJobId: null,
+          },
+          meoBackendData: {
+            meoExplain: {
+              rating: 4.2,
+              totalReviews: 186,
+              photoCount: 42,
+              hasWebsite: true,
+              hasPhone: true,
+              hasHours: true,
+              marketContext: {
+                localAvgRating: 4.3,
+                localAvgReviews: 312,
+                localAvgPhotos: 64,
+                competitorCount: 8,
+                reviewsPercentile: 65,
+                photosPercentile: 55,
+              },
+              optimizationTips: [
+                'Add more photos to match competitor averages (64 vs your 42).',
+                'Respond to recent reviews to improve engagement signals.',
+                'Ensure your business description is complete and keyword-rich.',
+              ],
+            },
+          },
+        };
+        processStoredResults(demoData);
+        sessionStorage.setItem('scanResults', JSON.stringify(demoData));
         setIsLoading(false);
         return;
       }
@@ -874,8 +1038,8 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       try {
         const data = JSON.parse(stored);
         const finalScoreKey = data.scores?.overall !== undefined ? 'overall' : 'final';
-        const geoScoreValid = data?.scores?.geo === null || typeof data?.scores?.geo === 'number';
-        const overallValid = data?.scores?.[finalScoreKey] === null || typeof data?.scores?.[finalScoreKey] === 'number';
+        const geoScoreValid = data?.scores?.geo == null || typeof data?.scores?.geo === 'number';
+        const overallValid = data?.scores?.[finalScoreKey] == null || typeof data?.scores?.[finalScoreKey] === 'number';
         if (!data.scores || typeof data.scores.meo !== 'number' || !geoScoreValid || !overallValid) {
           console.error('Invalid or missing scores in scan data');
           setIsLoading(false);
@@ -919,6 +1083,36 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   }, []);
 
   // ============================================================================
+  // EMBED MODE: Admin view from Geo Command Center — request & receive scan data via postMessage
+  // Request on mount (parent sends data when ready); avoids race where load fires before listener exists
+  // ============================================================================
+  useEffect(() => {
+    if (!isEmbedMode || typeof window === 'undefined') return;
+
+    // Signal to parent that we're ready to receive the stored scan report (avoids load-event race)
+    window.parent.postMessage({ type: 'embed-ready' }, '*');
+
+    const handler = (event) => {
+      const data = event?.data;
+      if (data?.type === 'scan-report-data' && data.scanReport) {
+        try {
+          const scanDataConverted = scanReportToScanData(data.scanReport, data.leadMeta || {});
+          setScanData(scanDataConverted);
+          setIsAdminView(true);
+          setIsLoading(false);
+          if (scanDataConverted.business?.name) {
+            document.title = `${scanDataConverted.business.name} — Visibility Report (Admin) | AGS`;
+          }
+        } catch (err) {
+          console.error('[ScanResults embed] Failed to process scan report:', err);
+        }
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [isEmbedMode]);
+
+  // ============================================================================
   // RECOVERY: If we have placeId but no explainJobId, create job via API
   // Backend now accepts placeId only (category optional) - fetches place + resolves category
   // ============================================================================
@@ -945,6 +1139,23 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
     })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
       .then((result) => {
+        const syncGeo = result?.geo;
+        if (syncGeo?.explain && hasValidExplainV2(syncGeo.explain)) {
+          const updated = {
+            ...scanData,
+            geo: { ...scanData.geo, ...syncGeo, explainJobId: null },
+            scores: {
+              ...scanData.scores,
+              geo: syncGeo.score,
+              final: scanData.scores?.meo != null && syncGeo.score != null
+                ? Math.round((scanData.scores.meo + syncGeo.score) / 2)
+                : scanData.scores?.final,
+            },
+          };
+          setScanData(updated);
+          sessionStorage.setItem('scanResults', JSON.stringify(updated));
+          return;
+        }
         const newJobId = result?.explainJobId ?? result?.jobId;
         if (!newJobId) return;
         setScanData((prev) => ({
@@ -1078,8 +1289,30 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       });
 
       const result = await response.json().catch(() => ({}));
-      const newJobId = result?.explainJobId ?? result?.jobId;
 
+      // Geo Command Center returns sync geo with explain (no jobId)
+      const syncGeo = result?.geo;
+      if (response.ok && syncGeo?.explain && hasValidExplainV2(syncGeo.explain)) {
+        const updated = {
+          ...scanData,
+          geo: { ...scanData.geo, ...syncGeo, explainJobId: null },
+          scores: {
+            ...scanData.scores,
+            geo: syncGeo.score,
+            final: scanData.scores?.meo != null && syncGeo.score != null
+              ? Math.round((scanData.scores.meo + syncGeo.score) / 2)
+              : scanData.scores?.final,
+          },
+        };
+        setScanData(updated);
+        sessionStorage.setItem('scanResults', JSON.stringify(updated));
+        toast.success('GEO analysis complete.');
+        setIsRegenerating(false);
+        return;
+      }
+
+      // MGO backend returns jobId for polling
+      const newJobId = result?.explainJobId ?? result?.jobId;
       if (!response.ok || !newJobId) {
         const errMsg = result?.error?.message || result?.message || `HTTP ${response.status}`;
         throw new Error(errMsg);
@@ -1087,30 +1320,18 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
 
       toast.success('Regenerating GEO analysis...');
 
-      // Update scanData with new jobId and clear old explain
       setScanData(prev => ({
         ...prev,
-        geo: {
-          ...prev.geo,
-          explainJobId: newJobId,
-          explain: null // Clear old explain so polling starts
-        }
+        geo: { ...prev.geo, explainJobId: newJobId, explain: null }
       }));
 
-      // Persist to sessionStorage
       const updated = {
         ...scanData,
-        geo: {
-          ...scanData.geo,
-          explainJobId: newJobId,
-          explain: null
-        }
+        geo: { ...scanData.geo, explainJobId: newJobId, explain: null }
       };
       sessionStorage.setItem('scanResults', JSON.stringify(updated));
 
       setIsRegenerating(false);
-
-      // Polling will automatically start due to new jobId and missing explain
     } catch (error) {
       console.error('Failed to regenerate explain:', error);
       toast.error(`Failed to regenerate: ${error.message}`);
@@ -1119,6 +1340,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   };
 
   const isDebugMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
+  const isDemoMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
 
   const meoExplainPlaceId =
     scanData?.meoBackendData?.place_id ||
@@ -1127,19 +1349,25 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
     null;
 
   // Unified loading screen: same UI for initial load AND GEO analysis
-  // Ensures only "AI visibility analysis in progress" shows from scan start until complete
   if (isLoading) {
     return (
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="min-h-screen bg-slate-50 flex items-center justify-center"
+        className="min-h-screen bg-slate-50"
       >
-        <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-purple-600 mx-auto mb-3" />
-          <p className="text-slate-600 text-sm font-medium">AI visibility analysis in progress</p>
-          <p className="text-slate-500 text-xs mt-1">Results will appear when the scan is complete</p>
+        <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm">
+          <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between`}>
+            <AGSLogo size="md" linkTo="/" />
+          </div>
+        </div>
+        <div className="flex items-center justify-center flex-1 py-24">
+          <div className="text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-purple-600 mx-auto mb-3" />
+            <p className="text-slate-600 text-sm font-medium">AI visibility analysis in progress</p>
+            <p className="text-slate-500 text-xs mt-1">Results will appear when the scan is complete</p>
+          </div>
         </div>
       </motion.div>
     );
@@ -1151,8 +1379,14 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="min-h-screen bg-slate-50 flex items-center justify-center p-4"
+        className="min-h-screen bg-slate-50"
       >
+        <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm">
+          <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between`}>
+            <AGSLogo size="md" linkTo="/" />
+          </div>
+        </div>
+        <div className="flex items-center justify-center flex-1 p-4">
         <Card className="p-8 text-center max-w-md shadow-lg rounded-2xl">
           <CardContent>
             <MapPin className="w-12 h-12 text-slate-400 mx-auto mb-4" />
@@ -1166,14 +1400,24 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
             >
               Run New Scan
             </Button>
+            <p className="text-xs text-slate-500 mt-4">
+              <button
+                type="button"
+                onClick={() => window.location.href = createPageUrl('ScanResults') + '?demo=1'}
+                className="underline hover:text-slate-700"
+              >
+                View demo report
+              </button>
+            </p>
           </CardContent>
         </Card>
+        </div>
       </motion.div>
     );
   }
 
   // ============================================================================
-  // FULL-GATE RENDERING: Stay on loading screen until ALL scans complete
+  // FULL-GATE RENDERING: Only block when actively polling for GEO (explainJobId exists)
   // Do not show partial results (MEO/GEO/Overall) until GEO analysis finishes
   // ============================================================================
   if (geoGenerating) {
@@ -1182,12 +1426,19 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="min-h-screen bg-slate-50 flex items-center justify-center"
+        className="min-h-screen bg-slate-50"
       >
-        <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-purple-600 mx-auto mb-3" />
-          <p className="text-slate-600 text-sm font-medium">AI visibility analysis in progress</p>
-          <p className="text-slate-500 text-xs mt-1">Results will appear when the scan is complete</p>
+        <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm">
+          <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between`}>
+            <AGSLogo size="md" linkTo="/" />
+          </div>
+        </div>
+        <div className="flex items-center justify-center flex-1 py-24">
+          <div className="text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-purple-600 mx-auto mb-3" />
+            <p className="text-slate-600 text-sm font-medium">AI visibility analysis in progress</p>
+            <p className="text-slate-500 text-xs mt-1">Results will appear when the scan is complete</p>
+          </div>
         </div>
       </motion.div>
     );
@@ -1201,7 +1452,11 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
     scanData,
     pollDebug?.elapsedMs ? Math.floor(pollDebug.elapsedMs / 1000) : 0
   );
-  const jobIdMissingError = pollDiagnosis.code === DiagnosisCodes.GEO_JOBID_MISSING
+  // Don't show error when we have valid GEO data (score or explain) — Geo returns sync explain, no jobId needed
+  // hasValidGeoScore: any numeric score from backend means GEO ran successfully (with or without explain)
+  const hasValidGeoScore = typeof scanData?.geo?.score === 'number';
+  const hasValidExplainForError = hasValidExplainV2(scanData?.geo?.explain);
+  const jobIdMissingError = pollDiagnosis.code === DiagnosisCodes.GEO_JOBID_MISSING && !hasValidGeoScore && !hasValidExplainForError
     ? 'GEO analysis could not start — backend did not return a job ID. This usually means the business category could not be resolved. Use Retry to create a GEO job.'
     : pollDiagnosis.code === DiagnosisCodes.GEO_RESPONSE_INCOMPLETE
       ? 'Backend response incomplete — geo object missing. Verify API_BASE_URL and proxy. Use Retry to attempt recovery.'
@@ -1249,7 +1504,28 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         const responseKeys = result ? Object.keys(result) : [];
         setLastResponseKeys(responseKeys);
 
-        // Backend returns explainJobId (or jobId for backward compat)
+        // Geo Command Center returns sync geo with explain (no jobId)
+        const syncGeo = result?.geo;
+        if (res.ok && syncGeo?.explain && hasValidExplainV2(syncGeo.explain)) {
+          setLastErrorMessage(null);
+          const updated = {
+            ...scanData,
+            geo: { ...scanData.geo, ...syncGeo, explainJobId: null },
+            scores: {
+              ...scanData.scores,
+              geo: syncGeo.score,
+              final: scanData.scores?.meo != null && syncGeo.score != null
+                ? Math.round((scanData.scores.meo + syncGeo.score) / 2)
+                : scanData.scores?.final,
+            },
+          };
+          setScanData(updated);
+          sessionStorage.setItem('scanResults', JSON.stringify(updated));
+          toast.success('GEO analysis complete.');
+          return;
+        }
+
+        // MGO backend returns jobId for polling
         const newJobId = result?.explainJobId ?? result?.jobId;
         if (res.ok && newJobId) {
           setLastErrorMessage(null);
@@ -1262,7 +1538,6 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
             geo: { ...scanData.geo, explainJobId: newJobId, explain: null }
           }));
           toast.success('GEO analysis started. Polling...');
-          // Polling starts automatically via useGEOExplainPolling when explainJobId is set
         } else {
           const errMsg = result?.error?.message || result?.message || `HTTP ${res.status}`;
           setLastErrorMessage(errMsg);
@@ -1297,7 +1572,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       >
         {/* Header */}
         <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm">
-          <div className="max-w-[1040px] mx-auto px-6 py-3.5 flex items-center justify-between">
+          <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between`}>
             <AGSLogo size="md" linkTo="/" />
             <div className="flex items-center gap-2">
               {scanId && <ShareButton scanId={scanId} />}
@@ -1308,7 +1583,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
           </div>
         </div>
 
-        <div className="max-w-[1040px] mx-auto px-6 py-16">
+        <div className={`${containerClass} mx-auto px-4 sm:px-6 py-16`}>
           <div className="space-y-16">
             {/* Hero Info */}
             <motion.div className="text-center space-y-5">
@@ -1374,7 +1649,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
 
             {/* Growth Plan - Blurred with unlock CTA */}
             {recommendedActions && recommendedActions.length > 0 && (
-              <BlurredUnlockSection onUnlock={handleBookACall}>
+              <BlurredUnlockSection onUnlock={handleBookACall} title="AI Visibility Growth Plan" isAdminView={isAdminView}>
                 <div className="space-y-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-lg">
                   <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
                     <Target className="w-6 h-6 text-purple-600" />
@@ -1405,13 +1680,17 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
               </BlurredUnlockSection>
             )}
 
-            {/* CTA */}
-            <div className="bg-slate-900 rounded-2xl p-8 text-center text-white">
-               <h2 className="text-2xl font-bold mb-4">Ready to discuss your ranking?</h2>
-               <Button onClick={handleBookACall} className="bg-white text-slate-900 hover:bg-slate-100 font-bold px-8 py-4 h-auto text-lg rounded-xl">
-                  Book a Strategy Session
-               </Button>
-            </div>
+            {/* CTA — hidden in admin view */}
+            {!isAdminView && (
+              <div className="bg-slate-900 rounded-2xl p-8 text-center text-white">
+                 <h2 className="text-2xl font-bold mb-4">Unlock Your Full Visibility Strategy</h2>
+                 <Button onClick={handleBookACall} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-8 py-4 h-auto text-lg rounded-xl flex items-center gap-2 mx-auto">
+                    <Calendar className="w-5 h-5" />
+                    Schedule a 20-minute visibility audit
+                 </Button>
+                 <p className="text-slate-400 text-xs mt-3">No obligation. Real data. Actionable recommendations.</p>
+              </div>
+            )}
 
           </div>
         </div>
@@ -1454,32 +1733,37 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   })();
   
   const optimizationPercentage = finalScore;
+  const meoExplain = scanData?.meoBackendData?.meoExplain;
+  const marketContext = meoExplain?.marketContext;
+  const address = business?.address || business?.formattedAddress || '';
+  const cityState = address.split(',').slice(1, 3).map((s) => s.trim()).filter(Boolean).join(', ') || scanData?.metadata?.city || '';
+  const rating = meoExplain?.rating ?? business?.rating ?? null;
+  const totalReviews = meoExplain?.totalReviews ?? business?.reviewCount ?? null;
+  const photoCount = meoExplain?.photoCount ?? 0;
+  const localAvgReviews = marketContext?.localAvgReviews ?? null;
+  const localAvgRating = marketContext?.localAvgRating ?? null;
+  const localAvgPhotos = marketContext?.localAvgPhotos ?? null;
+  const competitorCount = marketContext?.competitorCount ?? 0;
+  const reviewsPercentile = marketContext?.reviewsPercentile ?? percentile;
+  const photosPercentile = marketContext?.photosPercentile ?? 50;
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100"
+      className={`min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 ${isEmbedMode ? 'overflow-x-hidden' : ''}`}
     >
       <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-slate-200 shadow-sm">
-        <div className="max-w-[1040px] mx-auto px-6 py-3.5 flex items-center justify-between">
+        <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between`}>
           <AGSLogo size="md" linkTo="/" />
-
           <div className="flex items-center gap-2">
-            <Button
-              onClick={handleBookACall}
-              className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold px-5 py-2.5 rounded-lg shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-            >
-              <Phone className="w-4 h-4" />
-              Book a Strategy Session
-            </Button>
             {scanId && <ShareButton scanId={scanId} />}
             <Button
               onClick={handleNewScan}
-              variant="outline"
+              variant="ghost"
               size="sm"
-              className="text-slate-700 border-slate-300 hover:bg-slate-100 rounded-lg h-9 text-sm transition-all"
+              className="text-slate-600 hover:bg-slate-100 rounded-lg h-9 text-sm"
             >
               <RotateCcw className="w-4 h-4 mr-1.5" />
               <span className="hidden sm:inline">New Scan</span>
@@ -1488,148 +1772,258 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         </div>
       </div>
 
-      {/* GEO loading/error banner - shown when GEO is still analyzing or failed */}
-      {(geoGenerating || geoFailed || jobIdMissingError) && (
+      {isDemoMode && (
+        <div className="bg-amber-50 border-b border-amber-200 py-2">
+          <p className="text-center text-sm text-amber-800 font-medium">Demo mode — showing sample data. Run a real scan to see your business.</p>
+        </div>
+      )}
+      {(geoGenerating || geoFailed || jobIdMissingError) && !isDemoMode && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-slate-50 border-b border-slate-200"
         >
-          <div className="max-w-[1040px] mx-auto px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+          <div className={`${containerClass} mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 flex-wrap`}>
             <div className="flex items-center gap-2">
               {geoGenerating && (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
-                  <span className="text-sm font-medium text-slate-900">
-                    AI visibility analysis in progress — results will update automatically
-                  </span>
+                  <span className="text-sm font-medium text-slate-900">AI visibility analysis in progress</span>
                 </>
               )}
               {(geoFailed || jobIdMissingError) && (
                 <>
                   <AlertCircle className="w-4 h-4 text-amber-600" />
-                  <span className="text-sm font-medium text-amber-900">
-                    {jobIdMissingError || pollingError || 'GEO analysis encountered an issue'}
-                  </span>
+                  <span className="text-sm font-medium text-amber-900">{jobIdMissingError || pollingError || 'GEO analysis encountered an issue'}</span>
                 </>
               )}
             </div>
             {(geoFailed || jobIdMissingError) && (
-              <Button
-                onClick={handleRetryGEO}
-                size="sm"
-                variant="outline"
-                className="border-slate-400 text-slate-700 hover:bg-slate-100"
-              >
-                <RefreshCw className="w-4 h-4 mr-1.5" />
-                Retry GEO
+              <Button onClick={handleRetryGEO} size="sm" variant="outline" className="border-slate-400 text-slate-700">
+                <RefreshCw className="w-4 h-4 mr-1.5" /> Retry GEO
               </Button>
             )}
           </div>
         </motion.div>
       )}
 
-      <div className="max-w-[1040px] mx-auto px-6 py-16">
-        <div className="space-y-16">
+      <div className={`${containerClass} mx-auto px-4 sm:px-6 py-12 sm:py-14`}>
+        <div className="space-y-12">
+
+          {/* 1. BUSINESS HEADER */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="text-center space-y-5"
+            transition={{ duration: 0.4 }}
           >
-            <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 leading-tight">
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight tracking-tight">
               {business.name}
             </h1>
-            
-            <p className="text-slate-500 text-base flex items-center justify-center gap-2">
-              <MapPin className="w-4 h-4" />
-              {business.address || business.formattedAddress}
+            <p className="text-slate-600 text-sm mt-2 flex items-center gap-2">
+              <MapPin className="w-4 h-4 shrink-0 text-slate-500" />
+              {address}
             </p>
-
-            <div className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-full shadow-sm">
-              <Sparkles className="w-4 h-4 text-slate-600" />
-              <span className="text-sm text-slate-900 font-medium">
-                Ranks higher than <span className="font-bold"><AnimatedCounter value={percentile} />%</span> of competitors
-              </span>
-            </div>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.3 }}
-            >
-              <Button
-                onClick={handleBookACall}
-                className="w-full max-w-md mx-auto h-16 text-xl font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-700 hover:via-teal-700 hover:to-emerald-700 text-white rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all flex items-center justify-center gap-3"
-              >
-                <Phone className="w-7 h-7" />
-                Book a Strategy Session
-              </Button>
-            </motion.div>
           </motion.div>
 
-          <div className="h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
-
+          {/* 2. UNIFIED VISIBILITY REPORT — Professional layout */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="space-y-12"
+            transition={{ duration: 0.5, delay: 0.05 }}
           >
-            <Card className="bg-white border border-slate-200 rounded-2xl shadow-lg hover:shadow-xl transition-shadow">
-              <CardContent className="p-6 sm:p-8 lg:p-10">
-                
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 mb-8">
-                  <ScoreGaugeCard
-                    score={meoScore}
-                    label="MEO"
-                    sublabel="Maps"
-                    color="url(#meoGradient)"
-                    description="Google Business Profile optimization score"
-                    showBeta={false}
-                    delay={0}
-                  />
-                  <ScoreGaugeCard
-                    score={geoScore}
-                    label="GEO"
-                    sublabel="AI Visibility"
-                    color="url(#geoGradient)"
-                    description="AI search engine presence score"
-                    showBeta={false}
-                    delay={0.1}
-                    onClick={() => setExpandedPanel(expandedPanel === 'geo' ? null : 'geo')}
-                    isClickable={geoReady || isLimitedPresence}
-                    status={isLimitedPresence ? 'limited_presence' : (geoReady ? 'ok' : (geoGenerating ? 'generating' : derivedGEOStatus))}
-                    category={scanData?.geo?.category}
-                  />
-                  <ScoreGaugeCard
-                    score={finalScore}
-                    label="Overall"
-                    sublabel={geoScore === null ? "Maps-only" : "Combined"}
-                    color="url(#finalGradient)"
-                    description={geoScore === null
-                      ? "Overall combines Maps (MEO) + AI Visibility (GEO). Finish GEO setup to unlock combined score."
-                      : "Combined MEO + GEO visibility score"
-                    }
-                    showBeta={false}
-                    delay={0.2}
-                  />
-                </div>
+            <Card className="bg-white border border-slate-200 rounded-2xl shadow-lg overflow-hidden min-w-0">
+              {/* Report header */}
+              <div className="px-6 sm:px-10 pt-8 sm:pt-10 pb-6 border-b border-slate-100">
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Visibility Score Report</h2>
+                <p className="text-sm text-slate-600 mt-1">Your discoverability across Google Maps and AI search</p>
+              </div>
 
-
-                {/* Simplified progress indicator */}
-                <div className="pt-6 border-t border-slate-100">
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full rounded-full"
-                      style={{ background: getActiveGradient() }}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${optimizationPercentage}%` }}
-                      transition={{ duration: 1.5, delay: 0.5, ease: "easeOut" }}
+              {/* Score gauges — primary focus */}
+              <div className="px-6 sm:px-10 py-8 sm:py-10">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-10">
+                  <div className="flex flex-col items-center">
+                    <ScoreGaugeCard
+                      score={meoScore}
+                      label="MEO"
+                      sublabel="Maps visibility"
+                      color="url(#meoGradient)"
+                      description="Maps strength vs nearby competitors"
+                      showBeta={false}
+                      delay={0}
+                    />
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ScoreGaugeCard
+                      score={geoScore}
+                      label="GEO"
+                      sublabel="AI visibility"
+                      color="url(#geoGradient)"
+                      description="AI search visibility"
+                      showBeta={false}
+                      delay={0.1}
+                      onClick={() => setExpandedPanel(expandedPanel === 'geo' ? null : 'geo')}
+                      isClickable={geoReady || isLimitedPresence}
+                      status={isLimitedPresence ? 'limited_presence' : (geoReady ? 'ok' : (geoGenerating ? 'generating' : derivedGEOStatus))}
+                      category={scanData?.geo?.category}
+                    />
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ScoreGaugeCard
+                      score={finalScore}
+                      label="Overall"
+                      sublabel={geoScore === null ? "Maps-only" : "Combined"}
+                      color="url(#finalGradient)"
+                      description="Combined market visibility"
+                      showBeta={false}
+                      delay={0.2}
                     />
                   </div>
                 </div>
-              </CardContent>
+                {/* Assessment callout */}
+                <div className="mt-8 pt-6 border-t border-slate-100">
+                  <p className="text-sm text-slate-600 text-center max-w-2xl mx-auto leading-relaxed">
+                    {finalScore >= 80 ? (
+                      <>Strong visibility overall. Maps presence is solid; consider AI-specific optimizations.</>
+                    ) : finalScore >= 60 ? (
+                      <>Solid foundation. Competitors may have stronger review volume and photo coverage.</>
+                    ) : (
+                      <>Significant opportunity. Prioritize listing completeness, reviews, and website content.</>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Insights & recommendations — two-column layout */}
+              <div className="border-t border-slate-100 bg-slate-50/40">
+                <div className="px-6 sm:px-10 py-6 sm:py-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 min-w-0">
+                    {/* Left: Key insight + Quick wins */}
+                    <div className="space-y-6">
+                      <section>
+                        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                          <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                          Key Visibility Insight
+                        </h3>
+                        <p className="text-sm text-slate-700 leading-relaxed">
+                          {photoCount > 0 && localAvgPhotos != null ? (
+                            <><strong>{photoCount} photos</strong> vs. local avg <strong>{Math.round(localAvgPhotos)}</strong>. More photos improve Maps and AI discovery.</>
+                          ) : totalReviews != null && localAvgReviews != null ? (
+                            <><strong>{totalReviews} reviews</strong> vs. local avg <strong>{Math.round(localAvgReviews)}</strong>. Review volume drives visibility.</>
+                          ) : meoExplain?.optimizationTips?.[0] ? (
+                            meoExplain.optimizationTips[0]
+                          ) : (
+                            <>Complete your Google Business Profile to improve visibility.</>
+                          )}
+                        </p>
+                      </section>
+                      <section>
+                        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Visibility Wins</h3>
+                        <ul className="space-y-2.5">
+                          {(() => {
+                            const defaults = ['Add 20+ photos to your listing', 'Respond to reviews regularly', 'Add structured data to your website', 'Improve review volume'];
+                            const fromScan = (meoExplain?.optimizationTips?.slice(0, 2) || []).map(t => t.length > 60 ? t.slice(0, 60) + '…' : t);
+                            const combined = [...fromScan, ...defaults];
+                            const seen = new Set();
+                            const items = combined.filter(t => {
+                              const key = t.toLowerCase().replace(/\s+/g, ' ').trim();
+                              if (seen.has(key)) return false;
+                              seen.add(key);
+                              return true;
+                            }).slice(0, 4);
+                            return items.map((text, i) => (
+                              <li key={i} className="flex items-start gap-3 text-sm text-slate-700">
+                                <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <span>{text}</span>
+                              </li>
+                            ));
+                          })()}
+                        </ul>
+                      </section>
+                    </div>
+
+                    {/* Right: Data table + Score interpretation */}
+                    <div className="space-y-6">
+                      <section>
+                        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Data Used in This Report</h3>
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
+                          {[
+                            { label: 'Rating', value: rating != null ? rating.toFixed(1) : '—' },
+                            { label: 'Reviews', value: totalReviews != null ? totalReviews.toLocaleString() : '—' },
+                            { label: 'Photos', value: photoCount ?? '—' },
+                            { label: 'Website', value: (meoExplain?.hasWebsite ?? !!(business?.website || business?.websiteUri)) ? 'Yes' : 'No' },
+                            { label: 'Phone', value: (meoExplain?.hasPhone ?? !!(business?.international_phone_number || business?.formatted_phone_number || business?.internationalPhoneNumber)) ? 'Yes' : 'No' },
+                            { label: 'Hours', value: (meoExplain?.hasHours ?? !!(business?.opening_hours)) ? 'Complete' : 'Missing' }
+                          ].map(({ label, value }) => (
+                            <div key={label} className="bg-white rounded-lg border border-slate-100 px-3 py-2.5">
+                              <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">{label}</p>
+                              <p className="text-sm font-semibold text-slate-900 mt-1">{value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                      <section>
+                        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">What Your Score Means</h3>
+                        <ul className="space-y-2 text-sm text-slate-700">
+                          <li className="flex gap-2">
+                            <span className="font-semibold text-slate-900 shrink-0">MEO {meoScore}:</span>
+                            <span>{competitorCount > 0 && marketContext ? <>Better than ~<AnimatedCounter value={reviewsPercentile} />% of local competitors.</> : 'Based on listing completeness and signals.'}</span>
+                          </li>
+                          {geoScore != null && (
+                            <li className="flex gap-2">
+                              <span className="font-semibold text-slate-900 shrink-0">GEO {geoScore}:</span>
+                              <span>Likelihood AI search engines reference your business.</span>
+                            </li>
+                          )}
+                          {totalReviews != null && totalReviews < 200 && (
+                            <li className="text-slate-600">Market leaders: 400+ reviews, 60+ photos. You: {totalReviews} reviews, {photoCount} photos.</li>
+                          )}
+                        </ul>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* GEO breakdown (expandable) */}
+              {geoReady && scanData?.geo?.explain && (
+                <details className="group border-t border-slate-100">
+                  <summary className="flex items-center justify-between cursor-pointer px-6 sm:px-10 py-4 text-sm font-medium text-slate-600 hover:bg-slate-50/50 list-none [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center gap-2">
+                      <Search className="w-4 h-4 text-indigo-500" />
+                      {scanData.geo.explain.version === 'v3' ? `GEO breakdown (${scanData.geo.explain.geoScore} — ${scanData.geo.explain.grade})` : `View ${scanData.geo.explain.queries?.length || 0} AI prompts tested`}
+                    </span>
+                    <ChevronDown className="w-4 h-4 text-slate-400 group-open:rotate-180 transition-transform" />
+                  </summary>
+                  <div className="px-6 sm:px-10 py-4 bg-slate-50/50 border-t border-slate-100 max-h-60 overflow-y-auto space-y-4">
+                    {scanData.geo.explain.version === 'v3' && scanData.geo.explain.components?.length > 0 && (
+                      <ul className="space-y-1.5 text-sm">
+                        {scanData.geo.explain.components.map((c, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2">
+                            <span className="text-slate-700">{c.name}</span>
+                            <span className="font-medium text-slate-900">{c.score}/{c.max}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {scanData.geo.explain.version !== 'v3' && (scanData.geo.explain.queries || []).map((q, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm">
+                        {q.mentioned ? <Check className="w-4 h-4 text-green-600 shrink-0" /> : <X className="w-4 h-4 text-slate-400 shrink-0" />}
+                        <span className="text-slate-700">"{q.query}"</span>
+                        {q.rank != null && <Badge variant="outline" className="text-xs">#{q.rank}</Badge>}
+                      </li>
+                    ))}
+                  </div>
+                </details>
+              )}
             </Card>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.35 }}
+            className="space-y-14"
+          >
 
             {/* DEBUG INFO SECTION (optional) - enabled via ?debug=1 */}
             {isDebugMode && scanData.meoBackendData && (
@@ -1667,13 +2061,14 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
               </Card>
             )}
 
-            {/* WHY THIS SCORE SECTIONS - Blurred with unlock CTA */}
-            <BlurredUnlockSection onUnlock={handleBookACall} title="MEO Score Breakdown">
-              <MEOScoreWhyPanel placeId={meoExplainPlaceId} />
+            {/* 7. LOCKED — Competitor Breakdown */}
+            <BlurredUnlockSection onUnlock={handleBookACall} title="Competitor Visibility Breakdown" isAdminView={isAdminView}>
+              <MEOScoreWhyPanel placeId={meoExplainPlaceId} isAdminView={isAdminView} />
             </BlurredUnlockSection>
 
+            {/* 8. LOCKED — AI Entity Strength */}
             {isLimitedPresence ? (
-              <BlurredUnlockSection onUnlock={handleBookACall} title="GEO Score Breakdown">
+              <BlurredUnlockSection onUnlock={handleBookACall} title="AI Entity Strength" isAdminView={isAdminView}>
                 <GEOLimitedPresencePanel 
                   scanData={scanData}
                   fallbackScore={limitedPresenceFallbackScore}
@@ -1683,8 +2078,8 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
             ) : geoGenerating && !geoFailed ? (
               <GEOGeneratingPlaceholder debugInfo={pollDebug} />
             ) : geoReady ? (
-              <BlurredUnlockSection onUnlock={handleBookACall} title="GEO Score Breakdown">
-                <GEOWhyPanel 
+<BlurredUnlockSection onUnlock={handleBookACall} title="AI Entity Strength" isAdminView={isAdminView}>
+                <GEOWhyPanel
                   explain={scanData?.geo?.explain ?? null}
                   score={scanData?.geo?.score ?? null}
                   category={scanData?.geo?.category ?? null}
@@ -1694,8 +2089,8 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                 />
               </BlurredUnlockSection>
             ) : (
-              <BlurredUnlockSection onUnlock={handleBookACall} title="GEO Score Breakdown">
-                <GEOWhyPanel 
+<BlurredUnlockSection onUnlock={handleBookACall} title="AI Entity Strength" isAdminView={isAdminView}>
+                <GEOWhyPanel
                   explain={null}
                   score={null}
                   category={scanData?.geo?.category ?? null}
@@ -1721,69 +2116,32 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
               />
             )}
 
-            {/* Insights & Tips - Blurred with unlock CTA */}
-            <BlurredUnlockSection onUnlock={handleBookACall} title="Insights & Tips for Better Scores">
-              <div className="space-y-6 p-6 bg-white rounded-2xl border border-slate-200 shadow-lg">
-                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                  <Target className="w-5 h-5 text-slate-600" />
-                  Insights & Tips for Better Scores
-                </h2>
-                <div className="space-y-3">
-                  <Card className="border border-slate-200">
-                    <CardContent className="p-5">
-                      <div className="flex items-start gap-4">
-                        <Lightbulb className="w-5 h-5 text-amber-500 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-slate-900 text-sm mb-1">What This Means</h3>
-                          <p className="text-xs text-slate-600">
-                            Your visibility score reflects how well AI and local search can find and recommend your business.
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border border-slate-200">
-                    <CardContent className="p-5">
-                      <div className="flex items-start gap-4">
-                        <Globe className="w-5 h-5 text-blue-500 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-slate-900 text-sm mb-1">Boost AI Visibility</h3>
-                          <p className="text-xs text-slate-600">
-                            Add structured data and FAQ pages to help AI engines recommend your business.
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border border-slate-200">
-                    <CardContent className="p-5">
-                      <div className="flex items-start gap-4">
-                        <MapPin className="w-5 h-5 text-emerald-500 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-slate-900 text-sm mb-1">Optimize Google Business Profile</h3>
-                          <p className="text-xs text-slate-600">
-                            Complete all GBP sections, add photos, respond to reviews, and post weekly updates.
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border border-slate-200">
-                    <CardContent className="p-5">
-                      <div className="flex items-start gap-4">
-                        <Star className="w-5 h-5 text-slate-500 mt-0.5" />
-                        <div>
-                          <h3 className="font-semibold text-slate-900 text-sm mb-1">Build Review Authority</h3>
-                          <p className="text-xs text-slate-600">
-                            Request more reviews and respond professionally to all feedback.
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
+            {/* 9. LOCKED — Revenue Opportunity */}
+            <BlurredUnlockSection onUnlock={handleBookACall} title="Discovery & Revenue Opportunity" isAdminView={isAdminView}>
+              <div className="p-6 bg-white rounded-xl border border-slate-200">
+                <p className="text-sm text-slate-700 font-medium">Estimated discovery traffic opportunity based on your market and competitor gaps.</p>
               </div>
             </BlurredUnlockSection>
+
+            {/* 10. FINAL CTA — hidden in admin view */}
+            {!isAdminView && (
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.1 }}
+              >
+                <div className="rounded-2xl bg-slate-900 p-8 sm:p-10 text-center">
+                  <h3 className="text-xl font-bold text-white mb-2">Unlock Your Full Visibility Plan</h3>
+                  <p className="text-slate-300 text-sm mb-6 max-w-md mx-auto">Get a personalized 20-minute visibility audit with actionable recommendations.</p>
+                  <Button
+                    onClick={handleBookACall}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-8 py-3 rounded-xl shadow-lg"
+                  >
+                    Book Your Visibility Audit
+                  </Button>
+                </div>
+              </motion.div>
+            )}
 
           </motion.div>
 
@@ -1798,12 +2156,12 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                 <stop offset="100%" stopColor="#16A34A" />
               </linearGradient>
               <linearGradient id="geoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="var(--theme-gradient-start)" />
-                <stop offset="100%" stopColor="var(--theme-gradient-end)" />
+                <stop offset="0%" stopColor="#3B82F6" />
+                <stop offset="100%" stopColor="#3B82F6" />
               </linearGradient>
               <linearGradient id="finalGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#60A5FA" />
-                <stop offset="100%" stopColor="#3B82F6" />
+                <stop offset="0%" stopColor="#10B981" />
+                <stop offset="100%" stopColor="#10B981" />
               </linearGradient>
             </defs>
           </svg>
@@ -1813,27 +2171,6 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         </div>
       </div>
 
-      <motion.div
-        className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white border-t border-slate-700"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 1.5 }}
-      >
-        <div className="max-w-[1040px] mx-auto px-6 py-6">
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-center">
-            <p className="text-base font-bold mb-0.5">
-              Ready to discuss your ranking?
-            </p>
-            <Button
-              onClick={handleBookACall}
-              className="bg-white text-slate-900 hover:bg-slate-100 font-bold px-10 py-4 h-auto text-lg rounded-xl shadow-xl hover:shadow-2xl hover:scale-105 transition-all flex items-center gap-2"
-            >
-              <Phone className="w-5 h-5" />
-              Book a Strategy Session →
-            </Button>
-          </div>
-        </div>
-      </motion.div>
     </motion.div>
   );
 }
