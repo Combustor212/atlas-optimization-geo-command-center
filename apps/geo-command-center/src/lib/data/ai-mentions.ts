@@ -60,14 +60,15 @@ export async function getLocationMatchInfoWithClient(
     .single()
 
   if (locErr || !location) return null
-  const client = (location as { clients?: { business_name: string | null; phone: string | null } }).clients
+  const loc = location as unknown as { name?: string; address?: string; city?: string; state?: string; zip?: string; clients?: { business_name: string | null; phone: string | null } | Array<{ business_name: string | null; phone: string | null }> }
+  const client = Array.isArray(loc.clients) ? loc.clients[0] : loc.clients
   return {
     businessName: client?.business_name ?? null,
-    locationName: location.name ?? null,
-    address: location.address ?? null,
-    city: location.city ?? null,
-    state: location.state ?? null,
-    zip: location.zip ?? null,
+    locationName: loc.name ?? null,
+    address: loc.address ?? null,
+    city: loc.city ?? null,
+    state: loc.state ?? null,
+    zip: loc.zip ?? null,
     phone: client?.phone ?? null,
     website: null,
   }

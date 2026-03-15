@@ -53,13 +53,13 @@ export function Sidebar() {
           <Link href="/" className="flex items-center gap-2">
             <Image
               src="/ags-logo.png"
-              alt="AGS"
+              alt="Geo Command Center"
               width={36}
               height={36}
               className="h-9 w-9 shrink-0 object-contain"
             />
             <span className="truncate text-xl font-bold text-[var(--foreground)]">
-              AGS
+              Geo Command Center
             </span>
           </Link>
         </div>

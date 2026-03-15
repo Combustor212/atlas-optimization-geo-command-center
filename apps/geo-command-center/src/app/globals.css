@@ -21,15 +21,17 @@
 
 @layer base {
   * {
-    @apply border-[var(--card-border)];
+    border-color: var(--card-border);
   }
-  body {
-    @apply bg-[var(--background)] text-[var(--foreground)] antialiased;
-  }
-  
-  /* Smooth scrolling */
   html {
     scroll-behavior: smooth;
+  }
+  html,
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 

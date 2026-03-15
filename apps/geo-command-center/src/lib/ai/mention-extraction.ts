@@ -111,7 +111,7 @@ export function extractMentions(
 ): ExtractionResult {
   const { snippets, matched_terms, matched_types } = findMatches(rawText, locationInfo)
   const mention_count = Math.max(1, snippets.length)
-  const uniqueTypes = [...new Set(matched_types)]
+  const uniqueTypes = Array.from(new Set(matched_types))
   // Score: base 20 per matched type (name, address, phone, etc.) + cap at 100
   const typeScore = Math.min(100, uniqueTypes.length * 25)
   const snippetBonus = Math.min(30, snippets.length * 5)

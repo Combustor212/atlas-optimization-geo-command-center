@@ -7,10 +7,10 @@ import { revalidatePath } from 'next/cache'
 /**
  * Form action: delete a lead. Admin only. Uses service role to bypass RLS.
  */
-export async function deleteLeadFormAction(formData: FormData): Promise<{ error?: string }> {
+export async function deleteLeadFormAction(formData: FormData): Promise<void> {
   const leadId = formData.get('leadId') as string
-  if (!leadId) return { error: 'Missing lead ID' }
-  return deleteLeadAction(leadId)
+  if (!leadId) return
+  await deleteLeadAction(leadId)
 }
 
 /**

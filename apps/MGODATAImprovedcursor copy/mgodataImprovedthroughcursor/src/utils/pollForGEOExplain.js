@@ -19,10 +19,11 @@ function normalizeExplain(resp) {
   return { ...unwrapped, version: 'v2', queries };
 }
 
-/** Check if geo object has valid v2 explain (no polling needed) */
+/** Check if geo object has valid explain (v2 or v3, no polling needed) */
 export function hasValidExplainV2(geo) {
   if (!geo?.explain) return false;
   const e = geo.explain;
+  if (e.version === 'v3' && typeof e.geoScore === 'number') return true;
   return e.version === 'v2' && Array.isArray(e.queries) && e.queries.length > 0;
 }
 

@@ -33,12 +33,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${settingsUrl}?google_calendar_error=no_agency`)
     }
 
-    const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID
-    const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET
-    const baseUrl =
+    const clientId = (process.env.GOOGLE_CALENDAR_CLIENT_ID || '').trim()
+    const clientSecret = (process.env.GOOGLE_CALENDAR_CLIENT_SECRET || '').trim()
+    const baseUrl = (
       process.env.NEXT_PUBLIC_APP_URL ||
       process.env.VERCEL_URL ||
       'http://localhost:3000'
+    ).trim()
     const redirectUri = `${baseUrl.startsWith('http') ? baseUrl : `https://${baseUrl}`}/api/integrations/google-calendar/callback`
 
     if (!clientId || !clientSecret) {

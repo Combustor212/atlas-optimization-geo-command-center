@@ -155,6 +155,15 @@ export async function POST(req: NextRequest) {
       google_meet_link: result.meetLink,
     })
 
+    const metadata =
+      body.qualificationAnswers || body.opportunityEstimate || body.businessPlaceId
+        ? {
+            qualificationAnswers: body.qualificationAnswers ?? undefined,
+            opportunityEstimate: body.opportunityEstimate ?? undefined,
+            businessPlaceId: (body.businessPlaceId as string) || undefined,
+          }
+        : undefined
+
     try {
       await supabase.from('leads').insert({
         agency_id: agencyId,
@@ -168,6 +177,7 @@ export async function POST(req: NextRequest) {
         timezone: 'America/New_York',
         scheduled_at: slotStart,
         meet_link: result.meetLink,
+        ...(metadata && { metadata }),
       })
     } catch (leadErr) {
       console.warn('Lead insert failed (migration may be pending):', leadErr)

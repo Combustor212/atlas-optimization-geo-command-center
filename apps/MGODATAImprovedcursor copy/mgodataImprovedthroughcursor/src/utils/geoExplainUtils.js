@@ -293,8 +293,18 @@ export function generateActionPlan(weakest, queries) {
 }
 
 export function formatIntent(key) {
-  const map = { near_me: 'Near Me', best: 'Best/Top', service: 'Service', trust: 'Trust' };
-  return map[key] || key;
+  const map = {
+    near_me: 'Near Me',
+    best: 'Best/Top',
+    service: 'Service',
+    trust: 'Trust',
+    specific_need: 'Specific Need',
+    high_intent: 'High Intent',
+    open_now: 'Open Now',
+    cheap: 'Affordable',
+    comparison: 'Comparison',
+  };
+  return map[key] || (key ? String(key).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Unknown');
 }
 
 export function getMentionLabel(mentioned, rank) {

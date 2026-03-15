@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev:geo": "PORT=3000 npm run dev --workspace=apps/geo-command-center",
+    "dev:geo:fresh": "rm -rf apps/geo-command-center/.next && PORT=3000 npm run dev --workspace=apps/geo-command-center",
     "dev:atlas": "npm run dev --workspace=apps/atlas-gs",
     "dev:mgo-backend": "cd \"apps/MGODATAImprovedcursor copy/mgo-scanner-backend\" && npm run dev",
     "dev:mgo-frontend": "cd \"apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor\" && npm run dev",

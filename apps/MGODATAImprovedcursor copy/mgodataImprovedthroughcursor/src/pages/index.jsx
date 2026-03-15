@@ -40,7 +40,7 @@ import CompetitorWatchdog from "./CompetitorWatchdog";
 
 import DirectorySyncHub from "./DirectorySyncHub";
 
-import dashboard from "./dashboard";
+import dashboard from "./Dashboard";
 
 import ReputationManager from "./ReputationManager";
 
@@ -70,7 +70,7 @@ import IntegrateNow from "./IntegrateNow";
 
 import IntegrationResults from "./IntegrationResults";
 
-import Beta from "./Beta";
+import Beta from "./beta";
 
 import BetaAdmin from "./BetaAdmin";
 
@@ -138,7 +138,7 @@ const PAGES = {
     
     DirectorySyncHub: DirectorySyncHub,
     
-    dashboard: dashboard,
+    dashboard: Dashboard,
     
     ReputationManager: ReputationManager,
     

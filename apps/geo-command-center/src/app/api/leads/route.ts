@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { getAgencyScope } from '@/lib/auth/scope'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -9,6 +10,27 @@ const CORS_HEADERS = {
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: CORS_HEADERS })
+}
+
+/**
+ * GET /api/leads - List all leads (admin only). Used by client-side leads page.
+ */
+export async function GET() {
+  const scope = await getAgencyScope()
+  if (!scope || scope.role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const admin = getSupabaseAdmin()
+  const { data, error } = await admin
+    .from('leads')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  return NextResponse.json(data || [])
 }
 
 /**
@@ -80,7 +102,7 @@ export async function POST(req: NextRequest) {
       message: (body.message as string)?.trim() || null,
     }
 
-    if (source === 'scan' && body.metadata) {
+    if (body.metadata && typeof body.metadata === 'object') {
       insert.metadata = body.metadata
     }
 

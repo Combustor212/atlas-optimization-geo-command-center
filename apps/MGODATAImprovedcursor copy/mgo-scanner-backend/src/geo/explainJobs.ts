@@ -23,6 +23,7 @@ export interface GEOExplainJob {
 
 import { generateGEOQueries } from './queryGenerator';
 import { evaluateQueries, calculateStats, type GEOQueryResult, type GEOExplainStats } from './queryEvaluator';
+import { computeGeoV5Opportunity, type GEOv5Opportunity } from './geoOpportunity';
 
 export interface GEOExplainData {
   version: 'v2';
@@ -34,6 +35,8 @@ export interface GEOExplainData {
   nicheLabel: string;
   locationLabel: string;
   industryClassification?: IndustryClassification;
+  /** GEO v5 AI Discovery & Revenue Opportunity */
+  opportunity?: GEOv5Opportunity;
 }
 
 // In-memory job store (for fast access, backed by DB)
@@ -319,6 +322,9 @@ async function generateExplainData(
           }
         });
 
+        // GEO v5 — AI Discovery & Revenue Opportunity (uses v2/v3/v4 results)
+        const opportunity = computeGeoV5Opportunity(benchmarkResult, stats);
+
         // Transform benchmark result into explain data v2
         const explainData: GEOExplainData = {
           version: 'v2',
@@ -329,7 +335,8 @@ async function generateExplainData(
           percentile: benchmarkResult.percentile ?? 0,
           nicheLabel: benchmarkResult.nicheLabel,
           locationLabel: benchmarkResult.locationLabel,
-          industryClassification
+          industryClassification,
+          opportunity
         };
         
         updateJobState('completed', 'DONE', 100, null);

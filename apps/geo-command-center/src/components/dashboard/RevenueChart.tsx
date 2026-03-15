@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LineChart,
   Line,
@@ -20,12 +20,17 @@ interface RevenueChartProps {
 type DateRange = 'month' | '3months' | '6months' | '1year' | 'custom'
 
 export function RevenueChart({ initialData }: RevenueChartProps) {
+  const [mounted, setMounted] = useState(false)
   const [data, setData] = useState(initialData)
   const [loading, setLoading] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange>('month')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [showCustomPicker, setShowCustomPicker] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const fetchData = async (startDate?: string, endDate?: string) => {
     setLoading(true)
@@ -205,11 +210,17 @@ export function RevenueChart({ initialData }: RevenueChartProps) {
       )}
 
       <div className="h-64 relative">
-        {loading && (
+        {!mounted && (
+          <div className="flex h-full items-center justify-center text-[var(--muted)]">
+            Loading chart...
+          </div>
+        )}
+        {loading && mounted && (
           <div className="absolute inset-0 bg-[var(--card)]/50 flex items-center justify-center z-10">
             <div className="text-[var(--muted)]">Loading...</div>
           </div>
         )}
+        {mounted && (
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
@@ -243,6 +254,7 @@ export function RevenueChart({ initialData }: RevenueChartProps) {
             />
           </LineChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

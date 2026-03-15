@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import Link from 'next/link'
 import { getCurrentUserAgency } from '@/lib/data/profile'
 import { getAllLeadsForAdmin, type Lead } from '@/lib/data/leads'
 
@@ -7,7 +8,7 @@ import { Card } from '@/components/ui/Card'
 import { LeadFollowUpStatusSelect } from '@/components/leads/LeadFollowUpStatusSelect'
 import { DeleteLeadButton } from '@/components/leads/DeleteLeadButton'
 import { MessagePreview } from '@/components/leads/MessagePreview'
-import { MessageSquare, Calendar, Mail, Phone, Building2, Search } from 'lucide-react'
+import { MessageSquare, Calendar, Mail, Phone, Building2, Search, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 
 const PREFERRED_LABELS: Record<string, string> = {
@@ -15,6 +16,59 @@ const PREFERRED_LABELS: Record<string, string> = {
   afternoon: 'Afternoon (12pm - 3pm)',
   evening: 'Evening (3pm - 6pm)',
   flexible: 'Flexible',
+}
+
+/** Question labels for Book a Call qualification answers (must match AGS BookACallModal) */
+const QUALIFICATION_LABELS: Record<string, string> = {
+  monthlyRevenue: 'Monthly revenue',
+  averageCustomerValue: 'Average customer value',
+  monthlyNewCustomers: 'New customers per month',
+  mainCustomerSource: 'Main customer source',
+  marketingInvestment: 'Marketing investment',
+  mainGrowthGoal: 'Main growth goal',
+}
+
+function getQualificationEntries(answers: Record<string, string> | null | undefined): [string, string][] {
+  if (!answers || typeof answers !== 'object') return []
+  return Object.entries(answers)
+    .filter(([, v]) => v != null && String(v).trim())
+    .map(([key, value]) => [QUALIFICATION_LABELS[key] || key, value])
+}
+
+function ScheduledCallNotes({ lead }: { lead: Lead }) {
+  const meta = (lead.metadata || {}) as Record<string, unknown>
+  const answers = meta.qualificationAnswers as Record<string, string> | undefined
+  const entries = getQualificationEntries(answers)
+  const message = lead.message?.trim() || null
+
+  if (entries.length === 0 && !message) {
+    return <span className="text-sm text-[var(--muted)]">—</span>
+  }
+
+  return (
+    <div className="max-w-sm">
+      {entries.length > 0 && (
+        <div className="space-y-2.5 py-1">
+          {entries.map(([label, value]) => (
+            <div key={label} className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                {label}
+              </span>
+              <span className="text-sm text-[var(--foreground)]">{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {message && (
+        <div className={entries.length > 0 ? 'mt-3 pt-3 border-t border-[var(--card-border)]' : ''}>
+          <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)] block mb-0.5">
+            Notes
+          </span>
+          <span className="text-sm text-[var(--foreground)]">{message}</span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** Format the date/time the business requested for the call (not when they submitted the form). */
@@ -150,7 +204,7 @@ function ScheduledCallRow({ lead }: { lead: Lead }) {
         </span>
       </td>
       <td className="px-6 py-4">
-        <MessagePreview message={lead.message} />
+        <ScheduledCallNotes lead={lead} />
       </td>
       <td className="px-6 py-4 text-sm text-[var(--muted)]">
         {format(new Date(lead.created_at), 'MMM d, yyyy h:mm a')}
@@ -180,11 +234,19 @@ function ScanLeadRow({ lead }: { lead: Lead }) {
   const overallScore = meta.overallScore as number | undefined
   const locationStr = [city, state, country].filter(Boolean).join(', ') || address || '—'
 
+  const reportHref = `/dashboard/leads/scan/${lead.id}`
+
   return (
-    <tr className="border-b border-[var(--card-border)] last:border-0 transition-colors hover:bg-[var(--accent-muted)]/30">
+    <tr className="border-b border-[var(--card-border)] last:border-0 transition-colors hover:bg-[var(--accent-muted)]/30 group">
       <td className="px-6 py-4">
         <div>
-          <p className="font-medium text-[var(--foreground)]">{lead.business_name || lead.name}</p>
+          <Link
+            href={reportHref}
+            className="font-medium text-[var(--foreground)] group-hover:text-[var(--accent)] flex items-center gap-2 w-fit"
+          >
+            {lead.business_name || lead.name}
+            <ExternalLink className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+          </Link>
           <p className="text-sm text-[var(--muted)] flex items-center gap-1 mt-0.5">
             <Mail className="h-3.5 w-3.5" />
             <a href={`mailto:${lead.email}`} className="hover:text-[var(--accent)]">
@@ -204,19 +266,25 @@ function ScanLeadRow({ lead }: { lead: Lead }) {
         )}
       </td>
       <td className="px-6 py-4">
-        <span className="text-sm text-[var(--muted)]">{locationStr}</span>
+        <Link href={reportHref} className="text-sm text-[var(--muted)] hover:text-[var(--accent)]">
+          {locationStr}
+        </Link>
       </td>
       <td className="px-6 py-4">
-        <div className="flex flex-wrap gap-1.5 text-xs">
-          {typeof meoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">MEO {meoScore}</span>}
-          {typeof seoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">SEO {seoScore}</span>}
-          {typeof geoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">GEO {geoScore}</span>}
-          {typeof overallScore === 'number' && <span className="rounded bg-[var(--accent)]/20 px-1.5 py-0.5 font-medium">Overall {overallScore}</span>}
-          {meoScore === undefined && seoScore === undefined && geoScore === undefined && overallScore === undefined && <span className="text-[var(--muted)]">—</span>}
-        </div>
+        <Link href={reportHref} className="block w-fit">
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {typeof meoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">MEO {meoScore}</span>}
+            {typeof seoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">SEO {seoScore}</span>}
+            {typeof geoScore === 'number' && <span className="rounded bg-[var(--accent-muted)] px-1.5 py-0.5">GEO {geoScore}</span>}
+            {typeof overallScore === 'number' && <span className="rounded bg-[var(--accent)]/20 px-1.5 py-0.5 font-medium">Overall {overallScore}</span>}
+            {meoScore === undefined && seoScore === undefined && geoScore === undefined && overallScore === undefined && <span className="text-[var(--muted)]">—</span>}
+          </div>
+        </Link>
       </td>
       <td className="px-6 py-4 text-sm text-[var(--muted)]">
-        {format(new Date(lead.created_at), 'MMM d, yyyy h:mm a')}
+        <Link href={reportHref} className="hover:text-[var(--accent)]">
+          {format(new Date(lead.created_at), 'MMM d, yyyy h:mm a')}
+        </Link>
       </td>
       <td className="px-6 py-4">
         <DeleteLeadButton leadId={lead.id} />
@@ -353,7 +421,7 @@ export default async function LeadsPage() {
                       Requested Call Date
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-                      Notes
+                      Questions & Notes
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
                       Form Submitted

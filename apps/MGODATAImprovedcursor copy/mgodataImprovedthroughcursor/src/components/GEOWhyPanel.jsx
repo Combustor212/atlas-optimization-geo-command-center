@@ -43,7 +43,7 @@ export default function GEOWhyPanel({ explain, score, category, scanData, onRege
   const [filter, setFilter] = useState('weak_missing');
   const [search, setSearch] = useState('');
   const [showCompetitors, setShowCompetitors] = useState(false);
-  const [showQueries, setShowQueries] = useState(false);
+  const [showQueries, setShowQueries] = useState(true); // Expanded by default to show queries and rankings
   const [showInsights, setShowInsights] = useState(false);
   
   // Phase A: Real nearby competitors
@@ -64,7 +64,8 @@ export default function GEOWhyPanel({ explain, score, category, scanData, onRege
     topExcludedReason: null
   });
 
-  const hasData = explain?.version === 'v2' && Array.isArray(explain?.queries) && explain.queries.length > 0;
+  const isV3 = explain?.version === 'v3' && typeof explain?.geoScore === 'number';
+  const hasData = isV3 || (explain?.version === 'v2' && Array.isArray(explain?.queries) && explain.queries.length > 0);
   const queries = explain?.queries || [];
   const stats = explain?.stats || {};
   const industry = explain?.industryClassification?.industry || category?.label || 'Unknown';
@@ -304,6 +305,224 @@ export default function GEOWhyPanel({ explain, score, category, scanData, onRege
     return <GEOExplainUnavailableBanner onRegenerate={onRegenerate} isRegenerating={isRegenerating} />;
   }
 
+  // v3: Component-based GEO scoring + queries + entity authority (unified GEO v2/v3/v4)
+  if (isV3) {
+    const components = explain.components || [];
+    const recs = explain.optimizationRecommendations || [];
+    const defs = explain.deficiencies || [];
+    const v3Queries = explain.queries || [];
+    const topCompetitors = explain.topCompetitorsMentioned || [];
+    const BUCKET_LABELS = { near_me: 'Near Me', best: 'Best/Top', service: 'Service', trust: 'Trust', recommendation: 'Recommendation' };
+    return (
+      <div className="space-y-6">
+        <Card className="border-0 shadow-sm bg-white">
+          <CardContent className="p-8">
+            <div className="mb-6">
+              <div className="flex items-start justify-between gap-8">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-semibold text-slate-900 leading-relaxed mb-3">
+                    {explain.explanation || `GEO Score: ${explain.geoScore}/100 (Grade ${explain.grade})`}
+                  </h2>
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <span>{industry}</span>
+                    <span>•</span>
+                    <span>{location}</span>
+                    <span>•</span>
+                    <Badge variant={explain.grade === 'A' ? 'default' : explain.grade === 'B' ? 'secondary' : 'outline'}>
+                      Grade {explain.grade}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-4xl font-bold text-slate-900 mb-0.5">{score ?? explain.geoScore ?? '—'}</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">GEO Score</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* GEO v5 — AI Discovery & Revenue Opportunity */}
+        {explain?.opportunity && (
+          <Card className="border border-indigo-200 bg-indigo-50/30">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-bold text-slate-900 mb-2 flex items-center gap-2">
+                <Target className="w-5 h-5 text-indigo-600" />
+                AI Discovery Opportunity (GEO v5)
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">{explain.opportunity.opportunityExplanation}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                {explain.opportunity.potentialAIVisitsLost > 0 && (
+                  <div className="p-3 rounded-lg bg-white/80">
+                    <div className="text-slate-500 text-xs uppercase">Potential visits lost/mo</div>
+                    <div className="font-semibold text-slate-900">{explain.opportunity.potentialAIVisitsLost}</div>
+                  </div>
+                )}
+                {explain.opportunity.potentialCustomersLost > 0 && (
+                  <div className="p-3 rounded-lg bg-white/80">
+                    <div className="text-slate-500 text-xs uppercase">Potential customers lost/mo</div>
+                    <div className="font-semibold text-slate-900">{explain.opportunity.potentialCustomersLost}</div>
+                  </div>
+                )}
+                {explain.opportunity.monthlyRevenueOpportunity > 0 && (
+                  <div className="p-3 rounded-lg bg-white/80">
+                    <div className="text-slate-500 text-xs uppercase">Monthly revenue opportunity</div>
+                    <div className="font-semibold text-slate-900">
+                      ${explain.opportunity.monthlyRevenueOpportunity.toLocaleString()}
+                    </div>
+                  </div>
+                )}
+                {explain.opportunity.opportunityScore > 0 && (
+                  <div className="p-3 rounded-lg bg-white/80">
+                    <div className="text-slate-500 text-xs uppercase">Opportunity score</div>
+                    <div className="font-semibold text-slate-900">{explain.opportunity.opportunityScore}/100</div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* v3: Insights from scan - recommendations and gaps */}
+        <Card className="border border-slate-200">
+          <CardContent className="p-6">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Insights from AI Analysis</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              This scan uses component-based scoring (Authority, Content, Reviews, etc.). Below are the recommendations and gaps identified.
+            </p>
+            <div className="space-y-3">
+              {recs.map((r, i) => (
+                <div key={`rec-${i}`} className="p-3 rounded-lg bg-slate-50 hover:bg-slate-100 flex items-start gap-3 min-w-0">
+                  <Check className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                  <span className="text-sm font-medium text-slate-900 break-words min-w-0">{r}</span>
+                </div>
+              ))}
+              {defs.map((d, i) => (
+                <div key={`def-${i}`} className="p-3 rounded-lg bg-amber-50 border border-amber-100 flex items-start gap-3 min-w-0">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span className="text-sm font-medium text-amber-900 break-words min-w-0">{d}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
+          <Card className="border border-slate-200 min-w-0 overflow-hidden">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Score Breakdown</h3>
+              <div className="space-y-3">
+                {components.map((c, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-slate-50">
+                    <span className="text-sm font-medium text-slate-700">{c.name}</span>
+                    <span className="font-semibold text-slate-900">{c.score}/{c.max}</span>
+                  </div>
+                ))}
+              </div>
+              {/* Entity Authority (v4) metrics when present */}
+              {(explain.entityStrengthScore != null || explain.aiMentionProbability != null) && (
+                <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                  {explain.entityStrengthScore != null && (
+                    <div className="flex justify-between p-2 rounded bg-slate-50">
+                      <span className="text-sm text-slate-600">Entity strength</span>
+                      <span className="font-semibold">{explain.entityStrengthScore}/20</span>
+                    </div>
+                  )}
+                  {explain.aiMentionProbability != null && (
+                    <div className="flex justify-between p-2 rounded bg-slate-50">
+                      <span className="text-sm text-slate-600">AI mention probability</span>
+                      <span className="font-semibold">{explain.aiMentionProbability}%</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="border border-slate-200 min-w-0 overflow-hidden">
+            <CardContent className="p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Optimization Recommendations</h3>
+              <ul className="space-y-2">
+                {recs.map((r, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-700 break-words min-w-0">
+                    <Check className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                    <span className="min-w-0">{r}</span>
+                  </li>
+                ))}
+              </ul>
+              {defs.length > 0 && (
+                <>
+                  <h4 className="text-sm font-semibold text-slate-700 mt-4 mb-2">Gaps to address</h4>
+                  <ul className="space-y-1 text-sm text-amber-700">
+                    {defs.map((d, i) => (
+                      <li key={i} className="flex items-start gap-2 break-words min-w-0">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span className="min-w-0">{d}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {topCompetitors.length > 0 && (
+                <>
+                  <h4 className="text-sm font-semibold text-slate-700 mt-4 mb-2">Likely competitors mentioned</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {topCompetitors.map((c, i) => (
+                      <span key={i} className="rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700">{c}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* AI Query Simulation (v2) - when queries exist */}
+        {v3Queries.length > 0 && (
+          <Card className="border border-slate-200">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Search className="w-5 h-5 text-slate-600" />
+                <h3 className="text-lg font-bold text-slate-900">AI Query Simulation</h3>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-4 text-sm">
+                <span className="rounded bg-slate-100 px-2 py-1">Tested: {explain.queriesTested ?? v3Queries.length}</span>
+                <span className="rounded bg-slate-100 px-2 py-1">Mentioned: {explain.mentionsDetected ?? v3Queries.filter(q => q.mentioned).length}</span>
+                {explain.averagePosition != null && (
+                  <span className="rounded bg-slate-100 px-2 py-1">Avg position: {Number(explain.averagePosition).toFixed(1)}</span>
+                )}
+                {explain.aiVisibilityProbability != null && (
+                  <span className="rounded bg-slate-100 px-2 py-1">Visibility: {Math.round(explain.aiVisibilityProbability)}%</span>
+                )}
+              </div>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {v3Queries.map((q, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-3 rounded-lg border px-3 py-2 text-sm ${q.mentioned ? 'border-green-200 bg-green-50/50' : 'border-slate-200 bg-slate-50'}`}
+                  >
+                    {q.mentioned ? (
+                      <Check className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-full border-2 border-red-300 shrink-0 mt-0.5 inline-block" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900">&ldquo;{q.query ?? ''}&rdquo;</p>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
+                        <span>{BUCKET_LABELS[q.bucket] || q.bucket || '—'}</span>
+                        {q.rank != null && <span>Rank #{q.rank}</span>}
+                        {q.reason && <span>— {q.reason}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* PRIMARY INSIGHT - Hero Section */}
@@ -337,6 +556,99 @@ export default function GEOWhyPanel({ explain, score, category, scanData, onRege
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* QUERY TABLE - Queries run in scan and how they ranked (shown by default) */}
+      <Card className="border border-slate-200" data-section="queries">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Queries Tested & Rankings</h3>
+              <p className="text-sm text-slate-600">{queries.length} AI search queries run in this scan</p>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setShowQueries(!showQueries)}
+            >
+              {showQueries ? 'Hide' : 'Show'} Details
+              {showQueries ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+            </Button>
+          </div>
+
+          {showQueries && (
+            <>
+              {/* Filters */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'top3', label: 'Top 3' },
+                  { id: 'weak_missing', label: 'Weak + Missing' },
+                  { id: 'weak', label: 'Weak' },
+                  { id: 'missing', label: 'Missing' }
+                ].map(f => (
+                  <Button
+                    key={f.id}
+                    size="sm"
+                    variant={filter === f.id ? "default" : "outline"}
+                    onClick={() => setFilter(f.id)}
+                    className="text-xs"
+                  >
+                    {f.label}
+                  </Button>
+                ))}
+              </div>
+
+              {/* Query list with query text and rank */}
+              <div className="space-y-2">
+                {filteredQueries.map((q, idx) => (
+                  <div 
+                    key={idx}
+                    className="p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
+                    onClick={() => toggleRow(idx)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-sm font-medium text-slate-900">{q.query}</span>
+                          {q.mentioned && q.rank != null && (
+                            <Badge variant={q.rank <= 3 ? "default" : "secondary"} className="text-xs">
+                              Rank #{q.rank}
+                            </Badge>
+                          )}
+                          {!q.mentioned && (
+                            <Badge variant="outline" className="text-xs text-red-600 border-red-300">
+                              Not mentioned
+                            </Badge>
+                          )}
+                        </div>
+                        {expandedRows.has(idx) && q.reason && (
+                          <p className="text-xs text-slate-600 mt-2">{q.reason}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCopyQuery(q.query);
+                          }}
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                        {expandedRows.has(idx) ? 
+                          <ChevronUp className="w-4 h-4 text-slate-400" /> : 
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        }
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -628,99 +940,6 @@ export default function GEOWhyPanel({ explain, score, category, scanData, onRege
           </CardContent>
         </Card>
       )}
-
-      {/* QUERY TABLE - Collapsed by Default */}
-      <Card className="border border-slate-200" data-section="queries">
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Search Query Analysis</h3>
-              <p className="text-sm text-slate-600">{queries.length} queries tested across AI platforms</p>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="sm"
-              onClick={() => setShowQueries(!showQueries)}
-            >
-              {showQueries ? 'Hide' : 'Show'} Details
-              {showQueries ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
-            </Button>
-          </div>
-
-          {showQueries && (
-            <>
-              {/* Filters */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                {[
-                  { id: 'all', label: 'All' },
-                  { id: 'top3', label: 'Top 3' },
-                  { id: 'weak_missing', label: 'Weak + Missing' },
-                  { id: 'weak', label: 'Weak' },
-                  { id: 'missing', label: 'Missing' }
-                ].map(f => (
-                  <Button
-                    key={f.id}
-                    size="sm"
-                    variant={filter === f.id ? "default" : "outline"}
-                    onClick={() => setFilter(f.id)}
-                    className="text-xs"
-                  >
-                    {f.label}
-                  </Button>
-                ))}
-              </div>
-
-              {/* Query list */}
-              <div className="space-y-2">
-                {filteredQueries.map((q, idx) => (
-                  <div 
-                    key={idx}
-                    className="p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
-                    onClick={() => toggleRow(idx)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-slate-900">{q.query}</span>
-                          {q.mentioned && q.rank && (
-                            <Badge variant={q.rank <= 3 ? "default" : "secondary"} className="text-xs">
-                              #{q.rank}
-                            </Badge>
-                          )}
-                          {!q.mentioned && (
-                            <Badge variant="outline" className="text-xs text-red-600 border-red-300">
-                              Missing
-                            </Badge>
-                          )}
-                        </div>
-                        {expandedRows.has(idx) && q.reason && (
-                          <p className="text-xs text-slate-600 mt-2">{q.reason}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCopyQuery(q.query);
-                          }}
-                        >
-                          <Copy className="w-3 h-3" />
-                        </Button>
-                        {expandedRows.has(idx) ? 
-                          <ChevronUp className="w-4 h-4 text-slate-400" /> : 
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
-                        }
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
 
       <Button
         onClick={() => { window.location.href = createPageUrl('GetSupport') + '?book=1'; }}

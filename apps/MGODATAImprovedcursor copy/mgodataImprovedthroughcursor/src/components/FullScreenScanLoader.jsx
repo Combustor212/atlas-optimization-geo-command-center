@@ -40,9 +40,10 @@ export default function FullScreenScanLoader({
   const hasMEO = scanData?.scores?.meo != null;
   const hasGEOScore = scanData?.geo?.score != null;
   const hasGEOExplain = 
-    scanData?.geo?.explain?.version === 'v2' && 
-    Array.isArray(scanData?.geo?.explain?.queries) && 
-    scanData?.geo?.explain?.queries.length > 0;
+    (scanData?.geo?.explain?.version === 'v2' && 
+     Array.isArray(scanData?.geo?.explain?.queries) && 
+     scanData?.geo?.explain?.queries.length > 0) ||
+    (scanData?.geo?.explain?.version === 'v3' && typeof scanData?.geo?.explain?.geoScore === 'number');
 
   const subsystems = [
     {

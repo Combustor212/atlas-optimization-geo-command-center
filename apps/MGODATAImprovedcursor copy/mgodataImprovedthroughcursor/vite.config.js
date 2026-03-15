@@ -8,9 +8,9 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
-      // Proxy API routes to mgo-scanner-backend (port 3002 to avoid atlas-gs on 3000)
+      // Proxy /api to Geo Command Center (port 3000) - scan + leads work without MGO backend
       '/api': {
-        target: 'http://localhost:3002',
+        target: 'http://localhost:3000',
         changeOrigin: true,
         secure: false,
       },

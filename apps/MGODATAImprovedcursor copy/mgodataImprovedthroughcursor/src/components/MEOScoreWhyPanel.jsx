@@ -14,12 +14,9 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
+import { buildApiUrl } from "@/config/api";
 
 const CACHE_TTL_MS = Number(import.meta.env.VITE_MEO_EXPLAIN_CACHE_TTL_MS) || 1000 * 60 * 30;
-
-function apiBaseUrl() {
-  return import.meta.env.VITE_API_URL || "http://localhost:3002";
-}
 
 function cacheKey(placeId) {
   return `meoExplainCache:${placeId}`;
@@ -75,7 +72,7 @@ function statusTone(status) {
   }
 }
 
-export default function MEOScoreWhyPanel({ placeId }) {
+export default function MEOScoreWhyPanel({ placeId, isAdminView = false }) {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,13 +83,13 @@ export default function MEOScoreWhyPanel({ placeId }) {
     setError(null);
     setIsLoading(true);
 
-    const base = apiBaseUrl();
-    const url = new URL(`${base}/api/meo/explain`);
-    url.searchParams.set("placeId", placeId);
-    if (force) url.searchParams.set("force", "1");
+    const path = buildApiUrl("/api/meo/explain");
+    const params = new URLSearchParams({ placeId });
+    if (force) params.set("force", "1");
+    const url = `${path}?${params}`;
 
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url, {
         method: "GET",
         headers: { Accept: "application/json" },
         cache: "no-store",
@@ -323,13 +320,15 @@ export default function MEOScoreWhyPanel({ placeId }) {
                   {whyContent.reason}
                 </div>
 
-                <Button
-                  onClick={() => { window.location.href = createPageUrl("GetSupport") + "?book=1"; }}
-                  className="w-full mt-2 h-14 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg rounded-xl shadow-xl hover:shadow-2xl hover:scale-[1.01] transition-all"
-                >
-                  <Phone className="w-6 h-6 mr-2" />
-                  Book a Call
-                </Button>
+                {!isAdminView && (
+                  <Button
+                    onClick={() => { window.location.href = createPageUrl("GetSupport") + "?book=1"; }}
+                    className="w-full mt-2 h-14 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-lg rounded-xl shadow-xl hover:shadow-2xl hover:scale-[1.01] transition-all"
+                  >
+                    <Phone className="w-6 h-6 mr-2" />
+                    Book a Call
+                  </Button>
+                )}
               </div>
             </div>
           </div>

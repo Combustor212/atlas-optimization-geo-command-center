@@ -50,7 +50,8 @@ export async function POST(request: Request) {
     }
 
     // Return cached score if calculated within last 6 hours (avoids repeated AI calls)
-    let cachedScore: { overall_score: number; grade: string; trend: string; confidence: number; strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[]; recommendations: Array<{ priority: string; action: string; impact: string; effort: string }>; ranking_score: number; profile_score: number; competitive_score: number; signals_score: number; factors: Record<string, unknown>; calculated_at: string } | null = null
+    type CachedScore = { overall_score: number; grade: string; trend: string; confidence: number; strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[]; recommendations: Array<{ priority: string; action: string; impact: string; effort: string }>; ranking_score: number; profile_score: number; competitive_score: number; signals_score: number; factors: Record<string, unknown>; calculated_at: string }
+    let cachedScore: CachedScore | null = null
     if (!forceRefresh) {
       const cacheCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
       const res = await supabase
@@ -61,7 +62,7 @@ export async function POST(request: Request) {
         .order('calculated_at', { ascending: false })
         .limit(1)
         .single()
-      cachedScore = res.data as typeof cachedScore
+      cachedScore = res.data as CachedScore | null
     }
 
     if (cachedScore) {

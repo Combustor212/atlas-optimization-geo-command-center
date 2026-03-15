@@ -190,13 +190,15 @@ export async function hasExistingBooking(
   endTime: string
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin()
+  // Use strict overlap: booking overlaps slot only if booking.start < slot.end AND booking.end > slot.start.
+  // Adjacent slots (e.g. 5:00-5:30 and 5:30-6:00) must NOT be considered overlapping.
   const { data } = await supabase
     .from('bookings')
     .select('id')
     .eq('agency_id', agencyId)
     .eq('status', 'scheduled')
-    .lte('start_time', endTime)
-    .gte('end_time', startTime)
+    .lt('start_time', endTime)
+    .gt('end_time', startTime)
     .limit(1)
 
   return !!(data && data.length > 0)

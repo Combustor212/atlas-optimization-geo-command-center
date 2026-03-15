@@ -1,0 +1,28 @@
+# Render.com deployment for MGO Scanner Backend
+# Deploy: Connect this repo at render.com, set root to apps/MGODATAImprovedcursor copy/mgo-scanner-backend
+# Add PostgreSQL database in Render dashboard, then add DATABASE_URL to env
+
+services:
+  - type: web
+    name: mgo-scanner-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: GEO_COMMAND_CENTER_URL
+        sync: false
+      - key: AGS_LEADS_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgo-db
+          property: connectionString

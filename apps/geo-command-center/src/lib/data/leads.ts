@@ -70,3 +70,17 @@ export async function getAllLeadsForAdmin(_agencyId: string): Promise<Lead[]> {
   if (error) return []
   return (data || []) as Lead[]
 }
+
+/**
+ * Fetch a single lead by ID. Used for admin scan report view.
+ */
+export async function getLeadById(leadId: string): Promise<Lead | null> {
+  const supabase = getSupabaseAdmin()
+  const { data, error } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('id', leadId)
+    .single()
+  if (error || !data) return null
+  return data as Lead
+}

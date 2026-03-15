@@ -535,6 +535,25 @@ export async function handleMEOScan(req: Request, res: Response): Promise<void> 
         logger.warn('[Lead Capture] AGS_LEADS_API_KEY not set - lead not forwarded');
         leadForwardStatus = 'skipped_no_key';
       } else {
+        // Full scan report for admin view (exact report the company sees, unblurred)
+        const scanReport = {
+          scores: { meo: meoScore, seo: seoScore, geo: geoScore, overall: overallScore, final: overallScore },
+          geo: finalGeo,
+          body: meoResult,
+          place: {
+            place_id: placeId,
+            name: placeDetails.name,
+            formatted_address: placeDetails.formatted_address,
+            formatted_phone_number: placeDetails.formatted_phone_number,
+            international_phone_number: placeDetails.international_phone_number,
+            website: placeDetails.website,
+            rating: placeDetails.rating,
+            user_ratings_total: placeDetails.user_ratings_total,
+            opening_hours: placeDetails.opening_hours,
+            types: placeDetails.types,
+          },
+        };
+
         const geoPayload = {
           source: 'scan',
           business_name: formData.businessName,
@@ -555,6 +574,7 @@ export async function handleMEOScan(req: Request, res: Response): Promise<void> 
             geoScore,
             overallScore,
             ...metadata,
+            scanReport,
           },
         };
         const forwardResult = await forwardLeadToGeoCommandCenter(geoPayload);

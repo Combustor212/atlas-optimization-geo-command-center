@@ -24,6 +24,7 @@ import ScanCounter from '../components/ScanCounter';
 import FAQSection from '../components/cms/FAQSection';
 import SEOHead from '../components/cms/SEOHead';
 import FrontendOnlyScanner from '../components/scanner/FrontendOnlyScanner';
+import LiveAIVisibilityExample from '../components/LiveAIVisibilityExample';
 import { SendEmail } from '@/api/integrations';
 import ReportPreviewPopup from '../components/ReportPreviewPopup';
 
@@ -725,6 +726,7 @@ const Footer = () => {
 // ============================================================================
 export default function Landing() {
   const scanRef = useRef(null);
+  const scanFormRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
   const [heroBusinessName, setHeroBusinessName] = useState('');
@@ -821,6 +823,12 @@ export default function Landing() {
       {/* Scan Form Section */}
       <section id="scan-section" ref={scanRef} className="py-20 bg-gradient-to-b from-slate-50 to-white">
         <div className="max-w-7xl mx-auto px-4">
+          <LiveAIVisibilityExample
+            onScanClick={() => {
+              scanFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+          />
+
           <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-slate-900 mb-4">
               Start Your Free Scan
@@ -830,12 +838,14 @@ export default function Landing() {
             </p>
           </div>
 
-          <FrontendOnlyScanner 
-            onScanComplete={handleScanComplete} 
-            scanMode="local"
-            onBusinessNameChange={setHeroBusinessName}
-            onUrlChange={setHeroUrl}
-          />
+          <div ref={scanFormRef}>
+            <FrontendOnlyScanner 
+              onScanComplete={handleScanComplete} 
+              scanMode="local"
+              onBusinessNameChange={setHeroBusinessName}
+              onUrlChange={setHeroUrl}
+            />
+          </div>
         </div>
       </section>
 

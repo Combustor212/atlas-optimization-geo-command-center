@@ -9,10 +9,11 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getGoogleCalendarTokens } from '@/lib/integrations/google-calendar-oauth'
 
 function getBaseUrl() {
-  const u =
+  const u = (
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.VERCEL_URL ||
     'http://localhost:3000'
+  ).trim()
   return u.startsWith('http') ? u : `https://${u}`
 }
 
@@ -106,10 +107,12 @@ export async function GET(req: NextRequest) {
       `${successBase}?google_calendar_connected=1`
     )
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     console.error('Google Calendar callback error:', err)
     const successBase = getSuccessRedirectUrl()
+    const errorCode = msg.includes('redirect_uri') ? 'redirect_mismatch' : 'callback_failed'
     return NextResponse.redirect(
-      `${successBase}?google_calendar_error=callback_failed`
+      `${successBase}?google_calendar_error=${errorCode}&details=${encodeURIComponent(msg.slice(0, 100))}`
     )
   }
 }

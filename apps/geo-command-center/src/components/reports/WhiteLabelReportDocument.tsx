@@ -74,7 +74,7 @@ export function WhiteLabelReportDocument({
       <Page size="A4" style={baseStyles.page}>
         <View style={[baseStyles.header, dynamicStyles.headerBorder]}>
           {branding.logo_url && (
-            <Image src={branding.logo_url} alt="Company logo" style={baseStyles.logo} />
+            <Image src={branding.logo_url} style={baseStyles.logo} />
           )}
           <Text style={baseStyles.title}>
             {companyName} Performance Report

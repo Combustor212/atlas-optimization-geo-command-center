@@ -10,6 +10,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_agency: 'Your account has no agency. Contact an admin.',
   no_refresh_token: 'Could not get refresh token. Please try again and grant all permissions.',
   save_failed: 'Failed to save connection.',
+  redirect_mismatch: 'Redirect URI mismatch. Ensure https://admin.atlasgrowths.com/api/integrations/google-calendar/callback is in Google Cloud Console.',
   callback_failed: 'Connection failed. Please try again.',
 }
 
@@ -34,9 +35,11 @@ export function GoogleCalendarCallbackBanner() {
 
   if (error) {
     const msg = ERROR_MESSAGES[error] || error
+    const details = searchParams.get('details')
     return (
       <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
         {msg}
+        {details && <p className="mt-2 text-xs opacity-80">Details: {details}</p>}
       </div>
     )
   }

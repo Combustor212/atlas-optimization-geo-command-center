@@ -140,7 +140,7 @@ export default async function GeoPage() {
                         <div className="flex items-center gap-2">
                           {getRankTrendIcon(change)}
                           {change !== null && change !== 0 && (
-                            <span className={change > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]]'}>
+                            <span className={change > 0 ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
                               {change > 0 ? '+' : ''}{change}
                             </span>
                           )}

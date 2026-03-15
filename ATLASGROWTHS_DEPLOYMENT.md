@@ -1,8 +1,42 @@
 # Atlas Growths Deployment Guide
 
-Deploy **atlasgrowths.com** with:
-- **Public site** (atlasgrowths.com) — AGS marketing/landing (Vite app, port 5173 locally)
-- **Admin dashboard** (admin.atlasgrowths.com) — Geo Command Center (Next.js, port 3000 locally), **login required**
+## Target Production URLs
+
+| Domain | App | Auth |
+|--------|-----|------|
+| **atlasgrowths.com** | AGS (Vite) | Public |
+| **admin.atlasgrowths.com** | Geo Command Center (Next.js) | Login required → redirects to `/login` |
+
+Visiting `admin.atlasgrowths.com` redirects unauthenticated users to the login page.
+
+---
+
+## Quick Vercel Launch
+
+### Project 1: AGS → atlasgrowths.com
+
+1. **Vercel** → Add New → Project → Import this repo
+2. **Root Directory**: `apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor`
+3. **Framework**: Vite (auto-detected)
+4. **Environment Variables** (Production):
+   - `VITE_GEO_COMMAND_CENTER_URL` = `https://admin.atlasgrowths.com`
+   - `VITE_APP_URL` = `https://atlasgrowths.com`
+   - `VITE_AGS_LEADS_API_KEY` = *(match Geo's key)*
+   - `VITE_API_URL` = *(MGO backend URL when deployed)*
+5. **Domains**: Add `atlasgrowths.com` and `www.atlasgrowths.com`
+
+### Project 2: Geo Command Center → admin.atlasgrowths.com
+
+1. **Vercel** → Add New → Project → Import same repo
+2. **Root Directory**: `apps/geo-command-center`
+3. **Framework**: Next.js (auto-detected)
+4. **Environment Variables**: Copy from `apps/geo-command-center/.env.local`, set:
+   - `NEXT_PUBLIC_APP_URL` = `https://admin.atlasgrowths.com`
+   - `GEO_COMMAND_CENTER_URL` = `https://admin.atlasgrowths.com`
+5. **Domains**: Add `admin.atlasgrowths.com`
+6. **Supabase** (Auth → URL Configuration):
+   - Site URL: `https://admin.atlasgrowths.com`
+   - Redirect URLs: `https://admin.atlasgrowths.com/**`, `https://atlasgrowths.com/**`
 
 ---
 
@@ -114,7 +148,18 @@ WHERE id = 'user-uuid-from-supabase-auth';
 
 ---
 
-## Step 5: MGO Backend (Optional)
+## Step 5: MGO Backend (Required for Scans)
+
+**Scans will not work until the MGO backend is deployed.** The public site calls `VITE_API_URL/api/meo/scan` for scans.
+
+To enable scans:
+1. Deploy MGO backend to **Render.com** (or Railway/Fly.io):
+   - Root: `apps/MGODATAImprovedcursor copy/mgo-scanner-backend`
+   - Add PostgreSQL database
+   - Set env: `GEO_COMMAND_CENTER_URL`, `AGS_LEADS_API_KEY`, `GOOGLE_PLACES_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`
+2. In Vercel → atlasgrowths project → Environment Variables:
+   - Add `VITE_API_URL` = your MGO backend URL (e.g. `https://mgo-scanner-backend.onrender.com`)
+3. Redeploy the public site
 
 If the public site uses scan/API features, deploy the MGO scanner backend and set:
 
@@ -137,10 +182,29 @@ If the public site uses scan/API features, deploy the MGO scanner backend and se
 
 ## Quick Checklist
 
-- [ ] Public Vercel project: root `apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor`
-- [ ] Admin Vercel project: root `apps/geo-command-center`
-- [ ] Domain atlasgrowths.com → public project
-- [ ] Domain admin.atlasgrowths.com → admin project
-- [ ] `VITE_GEO_COMMAND_CENTER_URL=https://admin.atlasgrowths.com` on public site
-- [ ] Supabase redirect URLs include both domains
+- [ ] **AGS** Vercel project: root `apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor` → atlasgrowths.com
+- [ ] **Geo** Vercel project: root `apps/geo-command-center` → admin.atlasgrowths.com
+- [ ] Domain atlasgrowths.com → AGS project
+- [ ] Domain admin.atlasgrowths.com → Geo project
+- [ ] `VITE_GEO_COMMAND_CENTER_URL=https://admin.atlasgrowths.com` on AGS
+- [ ] Supabase Site URL & Redirect URLs include admin.atlasgrowths.com
 - [ ] Admin users created in Supabase with `role = 'admin'`
+
+---
+
+## Troubleshooting: admin.atlasgrowths.com Shows AGS Instead of Geo Command Center
+
+**If admin.atlasgrowths.com shows the AGS (marketing) app instead of the Geo Command Center dashboard:**
+
+1. **Check domain assignment in Vercel**
+   - Go to [Vercel Dashboard](https://vercel.com) → **AGS** project → Settings → Domains
+   - Remove `admin.atlasgrowths.com` if it is listed there
+   - Go to **Geo Command Center** project → Settings → Domains
+   - Add `admin.atlasgrowths.com` and configure DNS per Vercel instructions
+
+2. **Verify project root**
+   - Geo Command Center project must use **Root Directory**: `apps/geo-command-center`
+   - AGS project must use **Root Directory**: `apps/MGODATAImprovedcursor copy/mgodataImprovedthroughcursor`
+
+3. **Redeploy**
+   - After fixing domain assignment, trigger a redeploy of the Geo Command Center project
