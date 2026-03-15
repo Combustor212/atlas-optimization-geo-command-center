@@ -56,8 +56,8 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID
-    const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET
+    const clientId = (process.env.GOOGLE_CALENDAR_CLIENT_ID || '').trim()
+    const clientSecret = (process.env.GOOGLE_CALENDAR_CLIENT_SECRET || '').trim()
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
         `${successBase}?google_calendar_error=not_configured`
@@ -110,7 +110,9 @@ export async function GET(req: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('Google Calendar callback error:', err)
     const successBase = getSuccessRedirectUrl()
-    const errorCode = msg.includes('redirect_uri') ? 'redirect_mismatch' : 'callback_failed'
+    let errorCode = 'callback_failed'
+    if (msg.includes('redirect_uri')) errorCode = 'redirect_mismatch'
+    else if (msg.includes('invalid_client')) errorCode = 'invalid_client'
     return NextResponse.redirect(
       `${successBase}?google_calendar_error=${errorCode}&details=${encodeURIComponent(msg.slice(0, 100))}`
     )

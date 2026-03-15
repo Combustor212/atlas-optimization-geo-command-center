@@ -11,6 +11,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_refresh_token: 'Could not get refresh token. Please try again and grant all permissions.',
   save_failed: 'Failed to save connection.',
   redirect_mismatch: 'Redirect URI mismatch. Ensure https://admin.atlasgrowths.com/api/integrations/google-calendar/callback is in Google Cloud Console.',
+  invalid_client: 'Invalid Client ID or Secret. In Google Cloud Console: (1) Verify Client ID and Secret match Vercel env vars. (2) If OAuth consent is in Testing mode, add your email under Test users.',
   callback_failed: 'Connection failed. Please try again.',
 }
 
