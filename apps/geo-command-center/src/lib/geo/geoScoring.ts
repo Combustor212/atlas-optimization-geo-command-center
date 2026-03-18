@@ -722,6 +722,8 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
     }
   } catch (err) {
     console.error('[GEO Scoring] Failed:', err)
-    return null
+    // Re-throw so the route handler captures the actual OpenAI error message
+    // rather than swallowing it as a generic "null" return
+    throw err
   }
 }
