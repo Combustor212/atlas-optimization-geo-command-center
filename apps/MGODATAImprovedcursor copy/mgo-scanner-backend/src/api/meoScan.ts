@@ -255,25 +255,29 @@ export async function handleMEOScan(req: Request, res: Response): Promise<void> 
       const hasWebsite = !!placeDetails.website;
       const hasHours = !!placeDetails.opening_hours;
       
-      // Simple heuristic scoring (0-100)
-      let provisionalGeoScore = 50; // base
-      
+      // Provisional GEO score from available signals (replaced by async explain job).
+      // Base starts at 25 (unknown, no presence signals) rather than 50, to avoid
+      // artificially centering all scores around the midpoint.
+      let provisionalGeoScore = 25; // conservative base — no signals known
+
       if (reviewCount >= 100) provisionalGeoScore += 20;
       else if (reviewCount >= 50) provisionalGeoScore += 15;
       else if (reviewCount >= 20) provisionalGeoScore += 10;
       else if (reviewCount >= 10) provisionalGeoScore += 5;
-      
-      if (rating >= 4.5) provisionalGeoScore += 15;
-      else if (rating >= 4.0) provisionalGeoScore += 10;
-      else if (rating >= 3.5) provisionalGeoScore += 5;
-      
+      else if (reviewCount >= 5) provisionalGeoScore += 2;
+
+      if (rating >= 4.5) provisionalGeoScore += 18;
+      else if (rating >= 4.0) provisionalGeoScore += 13;
+      else if (rating >= 3.5) provisionalGeoScore += 8;
+      else if (rating >= 3.0) provisionalGeoScore += 3;
+
       if (photoCount >= 50) provisionalGeoScore += 10;
       else if (photoCount >= 20) provisionalGeoScore += 7;
       else if (photoCount >= 10) provisionalGeoScore += 5;
       else if (photoCount >= 5) provisionalGeoScore += 3;
-      
-      if (hasWebsite) provisionalGeoScore += 5;
-      if (hasHours) provisionalGeoScore += 3;
+
+      if (hasWebsite) provisionalGeoScore += 10;
+      if (hasHours) provisionalGeoScore += 4;
       
       // Cap at 100
       let rawGeoScore = Math.min(100, Math.round(provisionalGeoScore));

@@ -143,6 +143,10 @@ export interface MEOScanResponse {
     scoringVersion: string
     runId: string
     debugStamp: string
+    /** Warnings generated during scoring (e.g. competitive data unavailable) */
+    scoringWarnings?: string[]
+    /** Whether this score includes real competitive context or was computed without it */
+    competitiveDataAvailable?: boolean
   }
 }
 

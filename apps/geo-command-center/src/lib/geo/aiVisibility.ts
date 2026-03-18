@@ -92,6 +92,12 @@ export interface GEOExplainData {
   /** AI Query Evidence — transparent evidence of simulated AI answers */
   queryEvidence?: GEOQueryEvidenceItem[]
   queryEvidenceInsight?: string
+  /** Average confidence across all query simulations (0–100) */
+  averageConfidenceScore?: number
+  /** Identifies this as a simulation model, not live data */
+  simulationType: string
+  /** User-facing disclaimer about simulation nature */
+  simulationDisclaimer: string
 }
 
 function resolveIndustry(placeTypes: string[] | undefined): string {
@@ -301,5 +307,8 @@ function formatExplainData(
     competitorComparisonInsight: output.competitorComparisonInsight,
     queryEvidence: output.queryEvidence,
     queryEvidenceInsight: output.queryEvidenceInsight,
+    averageConfidenceScore: output.averageConfidenceScore,
+    simulationType: output.simulationType ?? 'simulated_ai_visibility',
+    simulationDisclaimer: output.simulationDisclaimer ?? 'This result estimates likelihood of AI recommendation and is not a live ranking.',
   }
 }

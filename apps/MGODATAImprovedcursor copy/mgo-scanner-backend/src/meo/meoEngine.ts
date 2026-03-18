@@ -573,9 +573,11 @@ export async function calculateMEOScore(
   if (photoCount >= 10) completenessScore += 20;
   else if (photoCount >= 5) completenessScore += 10;
   
-  // Mock review response rate (would come from API in production)
-  const reviewResponseRate = totalReviews > 0 ? 65 : 0;
-  const hasOwnerResponses = reviewResponseRate > 0;
+  // Google Places API does not expose review response rate — do not assume a fake value.
+  const reviewResponseRate = 0;
+  const hasOwnerResponses = false;
+
+  const scoringWarnings: string[] = [];
   
   // ============================================================================
   // REAL COMPETITIVE ANALYSIS (ASYNC - STRICT RULES)
@@ -592,20 +594,28 @@ export async function calculateMEOScore(
     targetLng,
     place.types
   );
+
+  let marketContext: typeof marketContextOrError extends { error: string } ? never : typeof marketContextOrError;
+  let competitiveDataAvailable: boolean;
   
-  // Check if competitive analysis failed (insufficient competitors)
+  // Gracefully handle competitive analysis failure — score without it rather than hard error
   if ('error' in marketContextOrError) {
-    return createErrorResponse(
-      businessName,
-      location,
-      runId,
-      marketContextOrError.error,
-      marketContextOrError.reason,
-      marketContextOrError.details
+    scoringWarnings.push(
+      `Competitive context unavailable: ${(marketContextOrError as { reason: string }).reason}. Competitive component scored as 0.`
     );
+    marketContext = {
+      localAvgRating: rating,
+      localAvgReviews: totalReviews,
+      localAvgPhotos: 0,
+      competitorsAnalyzed: 0,
+      competitivePercentile: { rating: 0, reviews: 0, photos: 0 },
+      marketPosition: 'Unknown — insufficient competitor data',
+    } as typeof marketContext;
+    competitiveDataAvailable = false;
+  } else {
+    marketContext = marketContextOrError;
+    competitiveDataAvailable = true;
   }
-  
-  const marketContext = marketContextOrError;
   
   // Check special statuses
   const isLocalLeader = checkIsLocalLeader(rating, totalReviews, marketContext.marketPosition);
@@ -667,11 +677,12 @@ export async function calculateMEOScore(
   const visibilityScore = ((completenessScore / 100) * 0.7 + (hasWebsite ? 0.3 : 0)) * 8;
   
   // 7. COMPETITIVE BONUS (Max ~4-6 points)
-  const avgPercentile = (
-    marketContext.competitivePercentile.rating +
-    marketContext.competitivePercentile.reviews +
-    marketContext.competitivePercentile.photos
-  ) / 3;
+  // Use only reliable signals (rating + reviews). Photos percentile from Nearby Search
+  // is always hardcoded to 50 — excluding it prevents an artificial anchor that
+  // compresses all competitive scores toward the midpoint.
+  const avgPercentile = competitiveDataAvailable
+    ? (marketContext.competitivePercentile.rating + marketContext.competitivePercentile.reviews) / 2
+    : 0;
   const competitiveScore = (avgPercentile / 100) * 6;
   
   // 8. RAW SCORE CALCULATION
@@ -1130,7 +1141,9 @@ export async function calculateMEOScore(
       calculatedAt: new Date().toISOString(),
       scoringVersion: SCORING_VERSION,
       runId,
-      debugStamp
+      debugStamp,
+      scoringWarnings: scoringWarnings.length > 0 ? scoringWarnings : undefined,
+      competitiveDataAvailable,
     }
   };
 }

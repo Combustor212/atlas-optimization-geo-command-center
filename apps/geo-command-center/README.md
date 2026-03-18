@@ -140,19 +140,44 @@ open http://localhost:3000
 
 ## 📦 Environment Variables
 
-See `ENV_VARIABLES.md` for complete documentation.
+Copy `.env.example` → `.env.local` and fill in all required values. See the example file for inline documentation on each variable.
 
-**Required:**
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
+### Scan System (REQUIRED — scans will fail without these)
 
-**Optional:**
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_MAPS_API_KEY` | Place search, place details, competitor fetch via Google Places API |
+| `OPENAI_API_KEY` | GEO AI Visibility scoring (gpt-4o). Without this, GEO defaults to MEO score |
+
+### Dashboard & Auth (REQUIRED)
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (public) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side, lead writes, admin queries) |
+
+### Leads Funnel (REQUIRED for scan/contact/call leads from AGS)
+
+| Variable | Purpose |
+|---|---|
+| `AGS_LEADS_API_KEY` | Shared secret between Geo Command Center, MGO backend, and AGS frontend. Generate: `openssl rand -hex 32` |
+| `AGS_LEADS_AGENCY_SLUG` | Agency slug for storing scan leads (default: `my-agency`). Must exist in `agencies` table |
+
+### Billing (REQUIRED for subscription features)
+
+| Variable | Purpose |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe secret key |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+
+### Optional Integrations
+
 - Google Search Console API credentials
 - Google Analytics 4 API credentials
 - Local Falcon API key
+
+> **Deployment note:** If `GOOGLE_MAPS_API_KEY` or `OPENAI_API_KEY` are missing in production, the scan endpoint logs clear warnings and returns degraded results — it will not crash. Missing `SUPABASE_SERVICE_ROLE_KEY` causes lead capture to fail silently (scan result is still returned).
 
 ## 🔐 Security Features
 

@@ -45,6 +45,10 @@ export interface GEOv2Query {
   rank: number | null
   reason: string | null
   competitors?: string[]
+  /** 0–100 confidence in this simulation estimate */
+  confidenceScore?: number
+  /** Short reasoning summary for this query result */
+  reasoningSummary?: string
 }
 
 /** AI Query Evidence — transparent evidence of simulated AI-generated answers */
@@ -53,6 +57,10 @@ export interface GEOQueryEvidenceItem {
   businessMentioned: boolean
   estimatedPosition: number | null
   competitorsMentioned: string[]
+  /** 0–100 confidence in this simulation estimate */
+  confidenceScore?: number
+  /** Short reasoning summary for this query result */
+  reasoningSummary?: string
 }
 
 /** GEO v5 AI Discovery Opportunity output */
@@ -107,6 +115,12 @@ export interface GEOScoreOutput {
   /** AI Query Evidence — transparent evidence of simulated AI answers */
   queryEvidence?: GEOQueryEvidenceItem[]
   queryEvidenceInsight?: string
+  /** Average confidence score across all query simulations (0–100) */
+  averageConfidenceScore?: number
+  /** Simulation type label */
+  simulationType?: string
+  /** Disclaimer shown to users about the simulation nature of AI visibility results */
+  simulationDisclaimer?: string
 }
 
 const GEO_SYSTEM_PROMPT = `You are an advanced AI system designed to calculate GEO (Generative Engine Optimization) visibility for businesses.
@@ -159,13 +173,15 @@ For each query, simulate AI-generated answers and estimate:
 - Estimated ranking position if mentioned (1–5; null if not mentioned). Use conservative estimates based on entity authority, review signals, content depth, category authority. Avoid unrealistic rankings.
 - Other businesses likely mentioned in the answer (competitorsMentioned: list of 1–5 competitor names)
 - Assign bucket: "near_me" | "best" | "service" | "trust" | "recommendation"
+- confidenceScore (0–100 integer): How confident the model is in this specific simulation result. Higher = stronger evidence from available signals.
+- reasoningSummary (string): A concise 1-sentence explanation of why the business would or would not appear in this query result.
 
 This is a SIMULATION MODEL — use conservative estimates, not direct AI API calls. Goal is transparency and insight.
 
 Compute: queriesTested, mentionsDetected, averagePosition (avg of positions where mentioned, null if none), aiVisibilityProbability (mentionsDetected/queriesTested as 0–100).
 Aggregate topCompetitorsMentioned: unique competitor names across all queries, max 10.
 
-GEO v8 QUERY EVIDENCE OUTPUT: Produce queryEvidence array with {query, businessMentioned, estimatedPosition (1–5 or null), competitorsMentioned}. Also produce queryEvidenceInsight: a short summary such as "Your business appeared in 3 of the 10 AI-generated answers tested. Competitors with stronger review signals and entity coverage appear more frequently in recommendations."
+GEO v8 QUERY EVIDENCE OUTPUT: Produce queryEvidence array with {query, businessMentioned, estimatedPosition (1–5 or null), competitorsMentioned, confidenceScore (0–100), reasoningSummary (1 sentence)}. Also produce queryEvidenceInsight: a short summary such as "Your business appeared in 3 of the 10 AI-generated answers tested. Competitors with stronger review signals and entity coverage appear more frequently in recommendations."
 
 ---
 
@@ -337,10 +353,10 @@ Return ONLY valid JSON, no markdown or extra text:
   "aiVisibilityProbability": number,
   "topCompetitorsMentioned": ["competitor1", "competitor2"],
   "v2Queries": [
-    {"query": "best coffee in mason ohio", "bucket": "best", "mentioned": true, "rank": 3, "reason": "Strong local presence", "competitors": ["Competitor A", "Competitor B"]}
+    {"query": "best coffee in mason ohio", "bucket": "best", "mentioned": true, "rank": 3, "reason": "Strong local presence", "competitors": ["Competitor A", "Competitor B"], "confidenceScore": 72, "reasoningSummary": "Business has strong review volume and good rating but lacks structured content depth."}
   ],
   "queryEvidence": [
-    {"query": "best coffee in mason ohio", "businessMentioned": true, "estimatedPosition": 2, "competitorsMentioned": ["Competitor A", "Competitor B"]}
+    {"query": "best coffee in mason ohio", "businessMentioned": true, "estimatedPosition": 2, "competitorsMentioned": ["Competitor A", "Competitor B"], "confidenceScore": 72, "reasoningSummary": "Business has strong review volume and good rating but lacks structured content depth."}
   ],
   "queryEvidenceInsight": "Your business appeared in 3 of the 10 AI-generated answers tested. Competitors with stronger review signals and entity coverage appear more frequently in recommendations.",
   "explanation": "2-3 sentence summary",
@@ -427,14 +443,78 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.2,
-      max_tokens: 3200,
+      max_tokens: 3600,
     })
 
-    const text = completion.choices[0]?.message?.content?.trim() || '{}'
-    const json = text.replace(/```json?\s*/gi, '').replace(/```\s*$/g, '').trim()
-    const parsed = JSON.parse(json)
+    const rawText = completion.choices[0]?.message?.content?.trim() || ''
+    console.log('[GEO Scoring] Raw OpenAI response length:', rawText.length)
 
-    const geoScore = Math.max(0, Math.min(100, Math.round(Number(parsed.geoScore) || 50)))
+    if (!rawText) {
+      console.error('[GEO Scoring] OpenAI returned empty response — cannot score')
+      return null
+    }
+
+    // Safe JSON extraction — strip markdown fences, attempt recovery on parse failure
+    let parsed: Record<string, unknown> = {}
+    let parseSucceeded = false
+    try {
+      const json = rawText.replace(/```json?\s*/gi, '').replace(/```\s*$/g, '').trim()
+      parsed = JSON.parse(json)
+      parseSucceeded = true
+    } catch (parseErr) {
+      console.warn('[GEO Scoring] JSON.parse failed, attempting recovery:', parseErr)
+      // Try to extract JSON object from within the text using brace matching
+      const firstBrace = rawText.indexOf('{')
+      const lastBrace = rawText.lastIndexOf('}')
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        try {
+          parsed = JSON.parse(rawText.slice(firstBrace, lastBrace + 1))
+          parseSucceeded = true
+          console.log('[GEO Scoring] JSON recovery succeeded')
+        } catch {
+          console.error('[GEO Scoring] JSON recovery also failed — returning null instead of fake score')
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('[GEO Scoring] Raw LLM output (first 600 chars):', rawText.slice(0, 600))
+          }
+          return null
+        }
+      } else {
+        console.error('[GEO Scoring] No JSON object found in LLM output — returning null')
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[GEO Scoring] Raw LLM output (first 600 chars):', rawText.slice(0, 600))
+        }
+        return null
+      }
+    }
+
+    // Strict geoScore validation — do NOT invent a score if the LLM omitted it.
+    const rawGeoScore = parsed.geoScore != null ? Number(parsed.geoScore) : null
+    if (rawGeoScore === null || Number.isNaN(rawGeoScore) || rawGeoScore <= 0) {
+      // rawGeoScore of 0 from LLM is theoretically valid but extremely rare and likely a parse error.
+      // A legitimate 0 would only apply to a business with absolutely no online presence.
+      // In that case the LLM would also have near-zero component scores, and the caller can
+      // re-evaluate from the components. For safety, treat 0 as a likely parse failure.
+      if (rawGeoScore === 0 && parseSucceeded) {
+        // Accept 0 only when parse fully succeeded and all components are also 0/near-0
+        const componentSum = Number(parsed.authorityScore || 0) +
+          Number(parsed.contentDepth || 0) +
+          Number(parsed.reviewAuthority || 0) +
+          Number(parsed.entityConsistency || 0) +
+          Number(parsed.answerability || 0)
+        if (componentSum > 0) {
+          console.error('[GEO Scoring] geoScore=0 but components are non-zero — likely parse error, returning null')
+          return null
+        }
+      } else if (rawGeoScore !== 0) {
+        console.error('[GEO Scoring] LLM returned invalid or missing geoScore:', rawGeoScore, '— returning null instead of fake default')
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[GEO Scoring] Parsed keys:', Object.keys(parsed).join(', '))
+        }
+        return null
+      }
+    }
+
+    const geoScore = Math.max(0, Math.min(100, Math.round(rawGeoScore!)))
     const authorityScore = Math.max(0, Math.min(30, Math.round(Number(parsed.authorityScore) || 0)))
     const contentDepth = Math.max(0, Math.min(20, Math.round(Number(parsed.contentDepth) || 0)))
     const reviewAuthority = Math.max(0, Math.min(20, Math.round(Number(parsed.reviewAuthority) || 0)))
@@ -455,6 +535,10 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
       rank: typeof q.rank === 'number' && q.rank >= 1 && q.rank <= 10 ? q.rank : null,
       reason: q.reason != null ? String(q.reason) : null,
       competitors: Array.isArray(q.competitors) ? q.competitors.map(String).slice(0, 5) : undefined,
+      confidenceScore: typeof q.confidenceScore === 'number'
+        ? Math.max(0, Math.min(100, Math.round(q.confidenceScore)))
+        : undefined,
+      reasoningSummary: q.reasoningSummary != null ? String(q.reasoningSummary).slice(0, 300) : undefined,
     }))
 
     // AI Query Evidence — parse from LLM or derive from v2Queries
@@ -471,6 +555,10 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
             competitorsMentioned: Array.isArray(e.competitorsMentioned)
               ? e.competitorsMentioned.map(String).filter(Boolean).slice(0, 5)
               : [],
+            confidenceScore: typeof e.confidenceScore === 'number'
+              ? Math.max(0, Math.min(100, Math.round(e.confidenceScore)))
+              : undefined,
+            reasoningSummary: e.reasoningSummary != null ? String(e.reasoningSummary).slice(0, 300) : undefined,
           }))
         : v2Queries.map((q) => ({
             query: q.query,
@@ -480,8 +568,19 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
                 ? Math.min(5, Math.max(1, Math.ceil(q.rank / 2)))
                 : null,
             competitorsMentioned: q.competitors ?? [],
+            confidenceScore: q.confidenceScore ?? 50,
+            reasoningSummary: q.reasoningSummary,
           }))
     const queryEvidenceInsight = String(parsed.queryEvidenceInsight || '').trim()
+
+    // Compute averageConfidenceScore from query evidence — only if the LLM provided scores
+    const confScores = queryEvidence
+      .map((e) => e.confidenceScore)
+      .filter((s): s is number => typeof s === 'number')
+    const averageConfidenceScore =
+      confScores.length > 0
+        ? Math.round(confScores.reduce((a, b) => a + b, 0) / confScores.length)
+        : undefined
 
     const queriesTested = Math.max(0, Math.min(20, Math.round(Number(parsed.queriesTested) || v2Queries.length)))
     const mentionsDetected = Math.max(
@@ -541,9 +640,10 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
     const competitorGeoScoresRaw = Array.isArray(parsed.competitorGeoScores) ? parsed.competitorGeoScores : []
     const competitorGeoScores = competitorGeoScoresRaw.slice(0, 10).map((c: Record<string, unknown>) => ({
       name: String(c.name || ''),
-      geoScore: Math.max(0, Math.min(100, Math.round(Number(c.geoScore) || 50))),
-      aiVisibilityProbability: Math.max(0, Math.min(100, Math.round(Number(c.aiVisibilityProbability) || 50))),
-    }))
+      // Use 0 as fallback rather than 50 — an unknown competitor score should not inflate averages
+      geoScore: Math.max(0, Math.min(100, Math.round(Number(c.geoScore) || 0))),
+      aiVisibilityProbability: Math.max(0, Math.min(100, Math.round(Number(c.aiVisibilityProbability) || 0))),
+    })).filter((c) => c.name && c.geoScore > 0) // Only include competitors the LLM actually scored
     const competitorAverageGeoScore =
       competitorGeoScores.length > 0
         ? Math.round(
@@ -615,6 +715,9 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
       }),
       queryEvidence,
       queryEvidenceInsight: queryEvidenceInsight || undefined,
+      averageConfidenceScore,
+      simulationType: 'simulated_ai_visibility',
+      simulationDisclaimer: 'This result estimates likelihood of AI recommendation and is not a live ranking.',
     }
   } catch (err) {
     console.error('[GEO Scoring] Failed:', err)

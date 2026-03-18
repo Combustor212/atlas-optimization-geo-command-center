@@ -208,7 +208,8 @@ async function processScan(placeDetails, { business_name, city, state, location,
     const place = placeDetails || scanResult?.place;
     
     // ✅ Canonical GEO object (single source of truth)
-    const meoScore = typeof scanResult?.scores?.meo === 'number' ? scanResult.scores.meo : 0;
+    // meoScore / geoScore can be null if the engine failed — preserve null to avoid fake display
+    const meoScore = typeof scanResult?.scores?.meo === 'number' ? scanResult.scores.meo : null;
     let seoScore = typeof scanResult?.scores?.seo === 'number' ? scanResult.scores.seo : null;
     // Fallback: if backend returns null SEO, compute from place profile (completeness-based)
     // Cap at 75 — we couldn't measure actual search visibility, so avoid inflating
@@ -262,8 +263,10 @@ async function processScan(placeDetails, { business_name, city, state, location,
     console.log('Full Scan Payload:', scanResult);
     console.log('═══════════════════════════════════════════════════════');
     
-    // Calculate percentile
-    const percentileData = geo?.score === null || geo?.score === undefined ? { percentile: null, text: '—' } : calculatePercentile(meoScore, geo.score);
+    // Calculate percentile — only when both scores are available
+    const percentileData = (meoScore === null || geo?.score === null || geo?.score === undefined)
+      ? { percentile: null, text: '—' }
+      : calculatePercentile(meoScore, geo.score);
 
     // Build optimization bar data
     const optimizationBar = {
@@ -295,14 +298,19 @@ async function processScan(placeDetails, { business_name, city, state, location,
           types: place.types || []
         } : null,
         scores: {
-          meo: Math.round(meoScore),
+          meo: meoScore !== null ? Math.round(meoScore) : null,
           seo: seoScore !== null ? Math.round(seoScore) : null,
           geo: geo?.score === null || geo?.score === undefined ? null : Math.round(geo.score),
           overall: overallScore,
           final: overallScore
         },
-        meoBackendData: meoData, // Include full MEO backend response
-        geo, // ✅ single canonical GEO object
+        meoBackendData: meoData,
+        geo,
+        scanConfidence: scanResult?.scanConfidence ?? null,
+        overallBasis: scanResult?.overallBasis ?? null,
+        scoringWarnings: scanResult?.scoringWarnings ?? [],
+        meoComponentBreakdown: scanResult?.meoComponentBreakdown ?? null,
+        geoComponentBreakdown: scanResult?.geoComponentBreakdown ?? null,
         percentile: percentileData.percentile,
         percentileText: percentileData.text,
         optimizationBar: {

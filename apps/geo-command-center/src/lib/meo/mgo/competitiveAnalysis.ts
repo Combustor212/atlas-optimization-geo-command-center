@@ -6,6 +6,10 @@ import type { MarketContext, CompetitivePercentile } from './meoSchema'
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY || ''
 const PLACES_API_BASE = 'https://maps.googleapis.com/maps/api/place'
 
+// Standardized competitor search radius (10 miles)
+export const COMPETITOR_RADIUS_MILES = 10
+export const COMPETITOR_RADIUS_METERS = 16093
+
 interface CompetitorData {
   place_id: string
   name: string
@@ -26,7 +30,7 @@ async function fetchRealCompetitors(
   targetLng: number,
   targetPlaceId: string,
   targetTypes: string[] | undefined,
-  radius = 12000
+  radius = COMPETITOR_RADIUS_METERS
 ): Promise<CompetitorData[] | null> {
   if (!API_KEY) return null
 
@@ -118,7 +122,7 @@ export async function analyzeCompetitivePosition(
     return { error: 'MEO competitive analysis blocked', reason: 'Missing target placeId or lat/lng' }
   }
 
-  const competitors = await fetchRealCompetitors(targetLat, targetLng, targetPlaceId, targetTypes, 12000)
+  const competitors = await fetchRealCompetitors(targetLat, targetLng, targetPlaceId, targetTypes, COMPETITOR_RADIUS_METERS)
 
   if (!competitors || competitors.length < 3) {
     return {

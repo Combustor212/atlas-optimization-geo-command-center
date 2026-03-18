@@ -13,6 +13,10 @@ import {
   type GooglePlacesConfig,
 } from '@/lib/integrations/google-places'
 
+// Standardized competitor search radius (10 miles)
+export const COMPETITOR_RADIUS_MILES = 10
+export const COMPETITOR_RADIUS_METERS = 16093
+
 // Map our category labels to Google Places API type (for nearby search)
 const CATEGORY_TO_PLACES_TYPE: Record<string, string> = {
   'coffee shop': 'cafe',
@@ -70,7 +74,7 @@ export async function fetchGeoCompetitors(
     const results = await searchNearbyPlaces(config, {
       keyword,
       location: { lat, lng },
-      radius: 8000, // ~5 miles
+      radius: COMPETITOR_RADIUS_METERS, // 10 miles
       type: placesType || undefined,
     })
 

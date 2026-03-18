@@ -4,7 +4,7 @@
  * Version: v10.1
  */
 
-import type { MEOScanResponse, ScoringBreakdown, CategoryWeights } from './meoSchema'
+import type { MEOScanResponse, ScoringBreakdown, CategoryWeights, MarketContext } from './meoSchema'
 import { SCORING_VERSION, GRADE_THRESHOLDS, CONFIDENCE_LEVELS } from './meoSchema'
 import { detectCategory, getCategoryWeights } from './categoryDetection'
 import { detectFranchise } from './franchiseDetection'
@@ -422,8 +422,13 @@ export async function calculateMEOScore(
   if (photoCount >= 10) completenessScore += 20
   else if (photoCount >= 5) completenessScore += 10
 
-  const reviewResponseRate = totalReviews > 0 ? 65 : 0
-  const hasOwnerResponses = reviewResponseRate > 0
+  // Google Places API does not expose review response rate — do not assume a fake value.
+  // Using 0 is honest: we have no data. Businesses that truly respond to reviews
+  // benefit via their rating and review volume signals instead.
+  const reviewResponseRate = 0
+  const hasOwnerResponses = false
+
+  const scoringWarnings: string[] = []
 
   const marketContextOrError = await analyzeCompetitivePosition(
     businessName,
@@ -438,18 +443,29 @@ export async function calculateMEOScore(
     place.types
   )
 
+  let marketContext: MarketContext
+  let competitiveDataAvailable: boolean
+
   if ('error' in marketContextOrError) {
-    return createErrorResponse(
-      businessName,
-      location,
-      runId,
-      marketContextOrError.error,
-      marketContextOrError.reason,
-      marketContextOrError.details
+    // Competitive data unavailable — score without it rather than blocking entirely.
+    // competitiveScore = 0 is honest: we cannot establish market position.
+    scoringWarnings.push(
+      `Competitive context unavailable: ${marketContextOrError.reason}. Competitive component scored as 0.`
     )
+    marketContext = {
+      localAvgRating: rating,
+      localAvgReviews: totalReviews,
+      localAvgPhotos: 0,
+      competitorsAnalyzed: 0,
+      competitivePercentile: { rating: 0, reviews: 0, photos: 0 },
+      marketPosition: 'Unknown — insufficient competitor data',
+    }
+    competitiveDataAvailable = false
+  } else {
+    marketContext = marketContextOrError
+    competitiveDataAvailable = true
   }
 
-  const marketContext = marketContextOrError
   const isLocalLeader = checkIsLocalLeader(rating, totalReviews, marketContext.marketPosition)
   const isPerfectProfile = checkIsPerfectProfile(
     hasPhone,
@@ -485,11 +501,12 @@ export async function calculateMEOScore(
   const engagementScore = (reviewResponseRate / 100) * 8
   const visibilityScore = ((completenessScore / 100) * 0.7 + (hasWebsite ? 0.3 : 0)) * 8
 
-  const avgPercentile =
-    (marketContext.competitivePercentile.rating +
-      marketContext.competitivePercentile.reviews +
-      marketContext.competitivePercentile.photos) /
-    3
+  // Use only reliable signals (rating + reviews). Photos percentile from Nearby Search
+  // is always 1 and not meaningful — excluding it prevents an artificial 50/100 anchor
+  // that compresses all competitive scores toward the midpoint.
+  const avgPercentile = competitiveDataAvailable
+    ? (marketContext.competitivePercentile.rating + marketContext.competitivePercentile.reviews) / 2
+    : 0
   const competitiveScore = (avgPercentile / 100) * 6
 
   let rawScore =
@@ -827,6 +844,15 @@ export async function calculateMEOScore(
 
   const debugStamp = `BACKEND_LIVE_${new Date().toISOString()}`
 
+  if (!competitiveDataAvailable) {
+    scoringWarnings.push(`reviewResponseRate not available from Google Places API — engagement component scored as 0`)
+  }
+  if (reviewReliabilityCapApplied && reviewReliabilityCap !== null) {
+    scoringWarnings.push(
+      `Review reliability cap applied (${totalReviews} reviews → max ${reviewReliabilityCap}). Reach ${getNextReviewThreshold(totalReviews)}+ reviews to unlock higher scores.`
+    )
+  }
+
   return {
     body: {
       status: 'completed',
@@ -873,6 +899,8 @@ export async function calculateMEOScore(
       scoringVersion: SCORING_VERSION,
       runId,
       debugStamp,
+      scoringWarnings: scoringWarnings.length > 0 ? scoringWarnings : undefined,
+      competitiveDataAvailable,
     },
   }
 }

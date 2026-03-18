@@ -830,6 +830,11 @@ export default function ScanResults() {
           geoDetails: result.geoDetails,
           meoBackendData: result.meoBackendData,
           geo: result.geo,
+          scanConfidence: result.scanConfidence ?? null,
+          overallBasis: result.overallBasis ?? null,
+          scoringWarnings: result.scoringWarnings ?? [],
+          meoComponentBreakdown: result.meoComponentBreakdown ?? null,
+          geoComponentBreakdown: result.geoComponentBreakdown ?? null,
           _debugScanResponseKeys: result._debugScanResponseKeys,
           _debugGeoResponseKeys: result._debugGeoResponseKeys,
           metadata: {
@@ -1910,6 +1915,53 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                     )}
                   </p>
                 </div>
+
+                {/* Scan confidence & scoring warnings */}
+                {(() => {
+                  const conf = scanData?.scanConfidence;
+                  const warnings = scanData?.scoringWarnings || [];
+                  const overallBasisLabel = scanData?.overallBasis;
+                  if (!conf && warnings.length === 0) return null;
+                  return (
+                    <div className="mt-5 space-y-2">
+                      {conf === 'low' && (
+                        <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                          <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-xs font-semibold text-amber-900">Low scan confidence</p>
+                            <p className="text-xs text-amber-700 mt-0.5">
+                              Scores may be less accurate due to limited competitor data, missing website, or low review volume.
+                              {overallBasisLabel && overallBasisLabel !== 'meo+geo' && (
+                                <> Overall score is based on {overallBasisLabel === 'meo-only' ? 'MEO only (GEO analysis unavailable)' : 'GEO only (MEO analysis unavailable)'}.</>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {conf === 'medium' && (overallBasisLabel && overallBasisLabel !== 'meo+geo') && (
+                        <div className="flex items-start gap-2.5 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                          <AlertCircle className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                          <p className="text-xs text-slate-600">
+                            Overall score is based on {overallBasisLabel === 'meo-only' ? 'MEO only — GEO analysis did not complete' : 'GEO only — MEO analysis did not complete'}.
+                          </p>
+                        </div>
+                      )}
+                      {warnings.length > 0 && (
+                        <details className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                          <summary className="text-xs font-medium text-slate-600 cursor-pointer list-none flex items-center gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                            {warnings.length} scoring note{warnings.length > 1 ? 's' : ''}
+                          </summary>
+                          <ul className="mt-2 space-y-1 pl-5">
+                            {warnings.map((w, i) => (
+                              <li key={i} className="text-xs text-slate-500 list-disc">{w}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Insights & recommendations — two-column layout */}
