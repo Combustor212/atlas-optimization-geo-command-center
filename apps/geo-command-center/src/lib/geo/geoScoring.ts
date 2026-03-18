@@ -443,7 +443,8 @@ Return ONLY valid JSON with all required fields: geoScore, grade, authorityScore
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.2,
-      max_tokens: 3600,
+      max_tokens: 6000,
+      response_format: { type: 'json_object' },
     })
 
     const rawText = completion.choices[0]?.message?.content?.trim() || ''
