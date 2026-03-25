@@ -177,23 +177,6 @@ export function BusinessSearchInput({
           </div>
         )}
       </div>
-      {mapsError && (
-        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" /> Google Maps failed to load. You can still type your business name.
-        </p>
-      )}
-      {placeId && (
-        <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-          <Check className="w-3 h-3" />
-          Business verified from Google Places
-        </p>
-      )}
-      {!placeId && value && value.length >= 2 && mapsLoaded && !isLoadingSuggestions && (
-        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-          <Sparkles className="w-3 h-3" />
-          Select from dropdown for exact business match
-        </p>
-      )}
     </div>
   );
 }

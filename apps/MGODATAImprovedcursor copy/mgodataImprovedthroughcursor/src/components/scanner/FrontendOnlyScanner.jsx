@@ -566,29 +566,6 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                   )}
                 </div>
 
-                {mapsError && (
-                  <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" /> Google Maps failed to load. Please refresh the page.
-                  </p>
-                )}
-                {placeId && (
-                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <Check className="w-3 h-3" />
-                    Business verified from Google Places
-                  </p>
-                )}
-                {!placeId && businessName && businessName.length >= 2 && mapsLoaded && !isLoadingSuggestions && (
-                  <p className="text-xs text-purple-600 mt-1 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    Select a business from the dropdown above
-                  </p>
-                )}
-                {!mapsLoaded && !mapsError && (
-                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Loading Google Places...
-                  </p>
-                )}
               </div>
 
               <div>
