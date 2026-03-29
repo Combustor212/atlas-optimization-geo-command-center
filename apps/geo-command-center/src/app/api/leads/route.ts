@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getAgencyScope } from '@/lib/auth/scope'
+import { trackTikTokLeadEvent } from '@/lib/integrations/tiktok-events'
+
+function clientIp(req: NextRequest): string | undefined {
+  const xff = req.headers.get('x-forwarded-for')
+  if (xff) return xff.split(',')[0]?.trim() || undefined
+  return req.headers.get('x-real-ip') || undefined
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -127,6 +134,26 @@ export async function POST(req: NextRequest) {
         { status: 500, headers: CORS_HEADERS }
       )
     }
+
+    const pageUrl =
+      typeof body.page_url === 'string'
+        ? body.page_url
+        : typeof body.pageUrl === 'string'
+          ? body.pageUrl
+          : null
+    const ttclid =
+      typeof body.ttclid === 'string' ? body.ttclid : undefined
+
+    void trackTikTokLeadEvent({
+      eventId: `lead_${lead.id}`,
+      email,
+      phone: insert.phone as string | null | undefined,
+      ip: clientIp(req),
+      userAgent: req.headers.get('user-agent'),
+      pageUrl,
+      ttclid,
+      event: 'SubmitForm',
+    })
 
     return NextResponse.json({ success: true, id: lead.id, created_at: lead.created_at }, { headers: CORS_HEADERS })
   } catch (error) {
