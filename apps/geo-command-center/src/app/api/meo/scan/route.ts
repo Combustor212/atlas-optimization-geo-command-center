@@ -19,6 +19,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { runGeoAIVisibility } from '@/lib/geo/aiVisibility'
 import { calculateMEOScore } from '@/lib/meo/mgo/meoEngine'
 import type { PlaceDetails } from '@/lib/meo/mgo/meoEngine'
+import { fireScanEmails } from '@/lib/email/scanEmails'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -661,7 +662,48 @@ export async function POST(req: NextRequest) {
       timings.lead = Date.now() - leadStart
     }
 
-    // ── 10. Response ──────────────────────────────────────────────────────
+    // ── 10. Emails (fire-and-forget) ──────────────────────────────────────
+    const userEmail: string | undefined =
+      typeof (body as Record<string, unknown>).email === 'string'
+        ? ((body as Record<string, unknown>).email as string).trim()
+        : undefined
+
+    if (userEmail) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://admin.atlasgrowths.com'
+      const bookingUrl = process.env.NEXT_PUBLIC_BOOKING_URL || 'https://atlasgrowths.com/get-support?book=1'
+      const geoSummary: string | null =
+        (geoExplain as unknown as Record<string, unknown> | null)?.['summary'] as string | null
+        ?? (geoExplain?.optimizationRecommendations?.[0] as string | null)
+        ?? null
+      const resultPayload = encodeURIComponent(
+        JSON.stringify({
+          meo: meoScore,
+          geo: geoScore,
+          overall,
+          insight: geoSummary,
+          businessName: placeOut?.name || '',
+          address: placeOut?.formatted_address || '',
+        })
+      )
+      const scanResultsUrl = `${appUrl}/scan-results?data=${resultPayload}`
+      fireScanEmails({
+        businessName: placeOut?.name || (body as Record<string, unknown>).businessName as string || '',
+        email: userEmail,
+        phone: placeOut?.formatted_phone_number ?? undefined,
+        address: placeOut?.formatted_address ?? undefined,
+        city: (body as Record<string, unknown>).city as string | undefined,
+        state: (body as Record<string, unknown>).state as string | undefined,
+        country: (body as Record<string, unknown>).country as string | undefined,
+        meoScore: meoScore ?? 0,
+        geoScore: geoScore,
+        overallScore: overall ?? 0,
+        insight: geoSummary,
+        scanResultsUrl,
+        bookingUrl,
+      })
+    }
+
+    // ── 11. Response ──────────────────────────────────────────────────────
     const processingTimeMs = Date.now() - scanStart
     console.log(`[MEO Scan] ===== SCAN COMPLETE in ${processingTimeMs}ms =====`, {
       meoScore, geoScore, overall, scanConfidence, overallBasis,

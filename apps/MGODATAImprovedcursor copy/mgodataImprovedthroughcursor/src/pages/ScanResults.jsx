@@ -2197,19 +2197,41 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
             {/* 10. FINAL CTA — hidden in admin view */}
             {!isAdminView && (
               <motion.div
-                initial={{ opacity: 0, y: 16 }}
+                initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.1 }}
+                transition={{ duration: 0.5, delay: 0.15 }}
               >
-                <div className="rounded-2xl bg-slate-900 p-8 sm:p-10 text-center">
-                  <h3 className="text-xl font-bold text-white mb-2">Unlock Your Full Visibility Plan</h3>
-                  <p className="text-slate-300 text-sm mb-6 max-w-md mx-auto">Get a personalized 20-minute visibility audit with actionable recommendations.</p>
-                  <Button
-                    onClick={handleBookACall}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-8 py-3 rounded-xl shadow-lg"
-                  >
-                    Book Your Visibility Audit
-                  </Button>
+                <div className="relative rounded-2xl bg-slate-900 overflow-hidden">
+                  {/* Subtle glow */}
+                  <div
+                    aria-hidden
+                    className="absolute inset-0 opacity-20 pointer-events-none"
+                    style={{ background: 'radial-gradient(ellipse 80% 60% at 50% 0%, #6366f1 0%, transparent 70%)' }}
+                  />
+                  <div className="relative p-10 sm:p-12 text-center">
+                    {/* Urgency badge */}
+                    <div className="inline-flex items-center gap-2 bg-white/10 text-white text-xs font-bold px-3 py-1.5 rounded-full mb-6 tracking-widest uppercase">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Limited spots this week
+                    </div>
+                    <h3 className="text-2xl sm:text-3xl font-black text-white mb-3 leading-tight">
+                      Book a Strategy Call
+                    </h3>
+                    <p className="text-slate-300 text-sm sm:text-base mb-8 max-w-md mx-auto leading-relaxed">
+                      Get your full visibility report, competitor analysis, and a step-by-step action plan — in a free 20-minute session.
+                    </p>
+                    <Button
+                      onClick={handleBookACall}
+                      className="group inline-flex items-center gap-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-base px-9 py-4 h-auto rounded-xl shadow-lg shadow-indigo-900/40 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl"
+                    >
+                      <Calendar className="w-5 h-5" />
+                      Book Your Free Strategy Call
+                      <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    </Button>
+                    <p className="mt-5 text-xs text-slate-500">
+                      No credit card · 20 min · Instant calendar access
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             )}
