@@ -8,25 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { 
   Building, 
-  MapPin, 
-  Globe, 
   Mail, 
-  Sparkles, 
   Check, 
   Loader2,
-  Zap,
   ArrowRight,
   AlertTriangle,
-  Home
+  MapPin,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast }  from 'sonner';
@@ -35,7 +24,7 @@ import { useGoogleMaps, useAutocompleteService } from '@/components/utils/useGoo
 import ScanLoadingOverlay from '@/components/ScanLoadingOverlay';
 import { createPageUrl } from '@/utils';
 
-// Global country list
+// Global country list (used for auto-fill matching only — not shown in form)
 const COUNTRIES = [
   "United States", "Canada", "United Kingdom", "Australia", "Germany", "France",
   "Spain", "Italy", "Netherlands", "Belgium", "Switzerland", "Austria",
@@ -46,6 +35,15 @@ const COUNTRIES = [
   "South Africa", "Nigeria", "Kenya", "Egypt",
   "New Zealand", "Philippines", "Thailand", "Malaysia", "Indonesia", "Vietnam"
 ].sort();
+
+/** Fire a TikTok pixel event safely (never throws) */
+function fireTTQ(event, params = {}) {
+  try {
+    if (typeof window !== 'undefined' && window.ttq) {
+      window.ttq.track(event, params);
+    }
+  } catch (_) {}
+}
 
 const SAVED_EMAIL_KEY = 'scan_saved_email';
 const SCAN_PENDING_KEY = 'scanPending';
@@ -88,12 +86,16 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
   const [url, setUrl] = useState('');
   const [isUrlValid, setIsUrlValid] = useState(false);
   const [businessName, setBusinessName] = useState('');
+  // Hidden auto-filled fields — populated silently via Smart Search
   const [streetAddress, setStreetAddress] = useState('');
   const [city, setCity] = useState('');
   const [country, setCountry] = useState('');
   const [postalCode, setPostalCode] = useState('');
   const [placeId, setPlaceId] = useState('');
   const [placeData, setPlaceData] = useState(null);
+  // Fallback mode: shown when user can't find business in Smart Search
+  const [fallbackMode, setFallbackMode] = useState(false);
+  const [fallbackCity, setFallbackCity] = useState('');
 
   // UI state
   const [isEmailValid, setIsEmailValid] = useState(() => {
@@ -324,6 +326,11 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
       setStreetAddress('');
       setAutoFilledFields([]);
     }
+    // Reset fallback mode when user changes the business name
+    if (fallbackMode) {
+      setFallbackMode(false);
+      setFallbackCity('');
+    }
   };
 
 
@@ -412,29 +419,35 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
       return;
     }
 
-    if (!country) {
-      toast.error('Please select a country');
+    // In fallback mode, require a city
+    if (fallbackMode) {
+      if (!fallbackCity || fallbackCity.trim().length < 2) {
+        toast.error('Please enter your city');
+        return;
+      }
+    } else if (!placeId) {
+      toast.error('Please select your business from the dropdown');
       return;
     }
 
-    if (!placeId) {
-      toast.error('Please select a business from the dropdown');
-      return;
-    }
+    // Fire TikTok pixel — Lead event on form submit
+    fireTTQ('SubmitForm', { content_name: 'Free Visibility Scan', content_type: 'lead_form' });
+    fireTTQ('Lead');
 
     // Parse city and state
-    const cityParts = city.split(',').map(s => s.trim());
+    const effectiveCity = fallbackMode ? fallbackCity : city;
+    const cityParts = effectiveCity.split(',').map(s => s.trim());
     const cityName = cityParts[0] || 'Unknown';
     const stateName = cityParts[1] || cityName;
 
     // Store scan params and navigate immediately - user sees loading screen right away
     const scanPending = {
-      placeId,
+      placeId: placeId || undefined,
       placeData: serializePlaceData(placeData),
       businessName,
       city: cityName,
       state: stateName,
-      country,
+      country: country || undefined,
       email: email?.trim() || undefined,
       phone: placeData?.formatted_phone_number || placeData?.international_phone_number || undefined,
       postalCode: postalCode || undefined,
@@ -455,6 +468,11 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
     navigate(createPageUrl('ScanResults'), { replace: true });
   };
 
+  // Compute whether form can be submitted
+  const isLocalReady = scanMode === 'local'
+    ? (!!businessName && isEmailValid && (fallbackMode ? !!fallbackCity : !!placeId))
+    : (isEmailValid && isUrlValid);
+
   // ========================================
   // Render
   // ========================================
@@ -465,60 +483,18 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
         progress={scanProgress}
         businessName={businessName}
       />
-    <Card className="max-w-3xl mx-auto shadow-2xl border-0 bg-white/90 backdrop-blur-xl rounded-3xl overflow-visible">
-      <CardContent className="p-8 lg:p-10 overflow-visible">
-        
-        {/* Info Banner */}
-        <div className="mb-6 p-4 bg-gradient-to-r from-blue-50/80 to-slate-50 border-2 border-blue-200/60 rounded-xl">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-5 h-5 text-blue-600" />
-            <div>
-              <p className="font-bold text-blue-900 text-sm flex items-center gap-2"><Sparkles className="w-4 h-4" /> Smart Search Enabled</p>
-              <p className="text-blue-700 text-xs">
-                Type your business name and select from the dropdown to auto-fill everything!
-              </p>
-            </div>
-          </div>
-        </div>
+    <Card className="max-w-2xl mx-auto shadow-2xl border-0 bg-white rounded-3xl overflow-visible">
+      <CardContent className="p-6 sm:p-8 overflow-visible">
 
-        <form onSubmit={(e) => { e.preventDefault(); handleScan(); }} className="space-y-6 overflow-visible">
-          
-          {/* Email - Common for both modes */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              <Mail className="w-4 h-4 inline mr-1" />
-              Your Email *
-            </label>
-            <div className="relative">
-              <Input
-                type="email"
-                value={email}
-                onChange={handleEmailChange}
-                placeholder="email@example.com"
-                className={cn(
-                  "h-12 text-base transition-all border-2 rounded-xl",
-                  isEmailValid ? "border-green-500 bg-green-50/30" : "border-slate-300"
-                )}
-                required
-              />
-              {isEmailValid && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                  <Check className="w-5 h-5 text-green-600" />
-                </div>
-              )}
-            </div>
-          </div>
+        <form onSubmit={(e) => { e.preventDefault(); handleScan(); }} className="space-y-5 overflow-visible">
 
           {scanMode === 'local' ? (
             <>
-              {/* Local Business Form Inputs */}
+              {/* Field 1: Business Name with Smart Search */}
               <div ref={dropdownRef} className="relative">
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
                   <Building className="w-4 h-4 inline mr-1" />
-                  Business Name *
-                  <Badge className="ml-2 bg-blue-100 text-blue-700">
-                    Smart Search
-                  </Badge>
+                  Your Business Name
                 </label>
                 <div className="relative">
                   <Input
@@ -526,21 +502,30 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                     type="text"
                     value={businessName}
                     onChange={(e) => handleBusinessNameChange(e)}
-                    placeholder={autocompleteReady ? "Type to search: e.g., Starbucks Dubai Mall" : "Loading search... (one moment)"}
-                    className="h-12 text-base border-2 border-slate-300 rounded-xl"
+                    placeholder={autocompleteReady ? "Start typing your business name..." : "Loading search... (one moment)"}
+                    className={cn(
+                      "h-14 text-base border-2 rounded-xl pr-10",
+                      placeId ? "border-green-500 bg-green-50/20" : "border-slate-300"
+                    )}
+                    style={{ fontSize: '16px' }}
                     autoComplete="off"
                     required
                     disabled={!autocompleteReady}
                   />
-                  {(isLoadingSuggestions || (showDropdown && suggestions.length > 0)) && (
+                  {placeId && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
-                      {isLoadingSuggestions ? (
-                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-                      ) : null}
+                      <Check className="w-5 h-5 text-green-600" />
                     </div>
                   )}
+                  {isLoadingSuggestions && !placeId && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                      <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                    </div>
+                  )}
+
+                  {/* Smart Search Dropdown */}
                   {showDropdown && suggestions.length > 0 && (
-                    <div className="absolute z-[10000] w-full mt-1 bg-white border-2 border-blue-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                    <div className="absolute z-[10000] w-full mt-1 bg-white border-2 border-blue-200 rounded-xl shadow-2xl max-h-72 overflow-y-auto">
                       {suggestions.map((pred, idx) => (
                         <button
                           key={pred.place_id ?? idx}
@@ -550,186 +535,211 @@ export default function FrontendOnlyScanner({ onScanComplete, scanMode = 'local'
                             e.stopPropagation();
                             handleSelectPrediction(pred);
                           }}
-                          className="w-full px-4 py-3 text-left hover:bg-blue-50 active:bg-blue-100 transition-colors border-b border-slate-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl"
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            handleSelectPrediction(pred);
+                          }}
+                          className="w-full px-4 py-3.5 text-left hover:bg-blue-50 active:bg-blue-100 transition-colors border-b border-slate-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl min-h-[48px] flex flex-col justify-center"
                         >
                           <div className="font-semibold text-sm text-slate-900">
                             {pred.structured_formatting?.main_text ?? pred.description}
                           </div>
                           {pred.structured_formatting?.secondary_text && (
-                            <div className="text-xs text-slate-500 mt-0.5">
+                            <div className="text-xs text-slate-500 mt-0.5 truncate">
                               {pred.structured_formatting.secondary_text}
                             </div>
                           )}
                         </button>
                       ))}
+                      {/* Fallback option */}
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setShowDropdown(false);
+                          setFallbackMode(true);
+                        }}
+                        onTouchEnd={(e) => {
+                          e.preventDefault();
+                          setShowDropdown(false);
+                          setFallbackMode(true);
+                        }}
+                        className="w-full px-4 py-3 text-left text-xs text-slate-500 hover:bg-slate-50 active:bg-slate-100 last:rounded-b-xl min-h-[44px] flex items-center border-t border-slate-100"
+                      >
+                        Can't find your business? Enter manually →
+                      </button>
                     </div>
                   )}
                 </div>
 
+                {/* Helper: selected business confirmed */}
+                {placeId && (
+                  <p className="mt-1.5 text-xs text-green-600 font-medium flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Business found — details auto-filled
+                  </p>
+                )}
+
+                {/* Helper: nudge to select from dropdown */}
+                {!placeId && !fallbackMode && businessName && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
+                  <p className="mt-1.5 text-xs text-slate-500 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 text-amber-500" />
+                    Select your business from the dropdown above
+                    <button
+                      type="button"
+                      onClick={() => setFallbackMode(true)}
+                      className="ml-1 text-blue-600 underline underline-offset-2 hover:text-blue-800"
+                    >
+                      or enter manually
+                    </button>
+                  </p>
+                )}
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  <Home className="w-4 h-4 inline mr-1" />
-                  Street Address
-                  {autoFilledFields.includes('street') && (
-                    <><Check className="ml-2 w-3 h-3 text-green-600 inline" /> <span className="text-green-600 text-xs">Auto-filled</span></>
-                  )}
-                </label>
-                <Input
-                  type="text"
-                  value={streetAddress}
-                  onChange={(e) => {
-                    setStreetAddress(e.target.value);
-                    setAutoFilledFields(prev => prev.filter(f => f !== 'street'));
-                  }}
-                  placeholder="e.g., 123 Main St"
-                  className={cn(
-                    "h-12 text-base border-2 rounded-xl",
-                    autoFilledFields.includes('street') ? "border-green-300 bg-green-50/30" : "border-slate-300"
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Fallback: manual city input when Smart Search can't find the business */}
+              {fallbackMode && (
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-2">
                     <MapPin className="w-4 h-4 inline mr-1" />
-                    City / Region
-                    {autoFilledFields.includes('city') && (
-                      <><Check className="ml-2 w-3 h-3 text-green-600 inline" /> <span className="text-green-600 text-xs">Auto-filled</span></>
-                    )}
+                    Your City
                   </label>
                   <Input
                     type="text"
-                    value={city}
-                    onChange={(e) => {
-                      setCity(e.target.value);
-                      setAutoFilledFields(prev => prev.filter(f => f !== 'city'));
-                    }}
-                    placeholder="e.g., Dubai"
-                    className={cn(
-                      "h-12 text-base border-2 rounded-xl",
-                      autoFilledFields.includes('city') ? "border-green-300 bg-green-50/30" : "border-slate-300"
-                    )}
+                    value={fallbackCity}
+                    onChange={(e) => setFallbackCity(e.target.value)}
+                    placeholder="e.g., Miami, FL"
+                    className="h-14 text-base border-2 border-slate-300 rounded-xl"
+                    style={{ fontSize: '16px' }}
                   />
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    We'll still run the scan — results may be less precise without a Google Places match.
+                  </p>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">
-                    <Globe className="w-4 h-4 inline mr-1" />
-                    Country *
-                    {autoFilledFields.includes('country') && (
-                      <><Check className="ml-2 w-3 h-3 text-green-600 inline" /> <span className="text-green-600 text-xs">Auto-filled</span></>
+              {/* Field 2: Email */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  <Mail className="w-4 h-4 inline mr-1" />
+                  Your Email
+                </label>
+                <div className="relative">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={handleEmailChange}
+                    placeholder="you@yourbusiness.com"
+                    className={cn(
+                      "h-14 text-base transition-all border-2 rounded-xl pr-10",
+                      isEmailValid ? "border-green-500 bg-green-50/20" : "border-slate-300"
                     )}
-                  </label>
-                  <Select
-                    value={country}
-                    onValueChange={(value) => {
-                      setCountry(value);
-                      setAutoFilledFields(prev => prev.filter(f => f !== 'country'));
-                    }}
-                  >
-                    <SelectTrigger className={cn(
-                      "h-12 text-base border-2 rounded-xl",
-                      autoFilledFields.includes('country') ? "border-green-300 bg-green-50/30" : "border-slate-300"
-                    )}>
-                      <SelectValue placeholder="Select country" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[300px]">
-                      {COUNTRIES.map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    style={{ fontSize: '16px' }}
+                    required
+                  />
+                  {isEmailValid && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <Check className="w-5 h-5 text-green-600" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            /* Online mode: Email + URL */
+            <>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  <Mail className="w-4 h-4 inline mr-1" />
+                  Your Email
+                </label>
+                <div className="relative">
+                  <Input
+                    type="email"
+                    value={email}
+                    onChange={handleEmailChange}
+                    placeholder="you@yourbusiness.com"
+                    className={cn(
+                      "h-14 text-base transition-all border-2 rounded-xl pr-10",
+                      isEmailValid ? "border-green-500 bg-green-50/20" : "border-slate-300"
+                    )}
+                    style={{ fontSize: '16px' }}
+                    required
+                  />
+                  {isEmailValid && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <Check className="w-5 h-5 text-green-600" />
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Postal Code <span className="text-slate-400">(optional)</span>
-                  {autoFilledFields.includes('postal') && (
-                    <><Check className="ml-2 w-3 h-3 text-green-600 inline" /> <span className="text-green-600 text-xs">Auto-filled</span></>
-                  )}
+                  Website URL *
                 </label>
-                <Input
-                  type="text"
-                  value={postalCode}
-                  onChange={(e) => {
-                    setPostalCode(e.target.value);
-                    setAutoFilledFields(prev => prev.filter(f => f !== 'postal'));
-                  }}
-                  placeholder="e.g., 10117"
-                  className={cn(
-                    "h-12 text-base border-2 rounded-xl",
-                    autoFilledFields.includes('postal') ? "border-green-300 bg-green-50/30" : "border-slate-300"
+                <div className="relative">
+                  <Input
+                    type="url"
+                    value={url}
+                    onChange={handleUrlChange}
+                    placeholder="https://example.com"
+                    className={cn(
+                      "h-14 text-base transition-all border-2 rounded-xl pr-10",
+                      isUrlValid ? "border-green-500 bg-green-50/20" : "border-slate-300"
+                    )}
+                    style={{ fontSize: '16px' }}
+                    required
+                  />
+                  {isUrlValid && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <Check className="w-5 h-5 text-green-600" />
+                    </div>
                   )}
-                />
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5">
+                  We analyze your site, AI mentions, and visibility signals across the web.
+                </p>
               </div>
             </>
-          ) : (
-            /* Online Business Form Input */
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">
-                <Globe className="w-4 h-4 inline mr-1" />
-                Website URL *
-              </label>
-              <div className="relative">
-                <Input
-                  type="url"
-                  value={url}
-                  onChange={handleUrlChange}
-                  placeholder="https://example.com"
-                  className={cn(
-                    "h-12 text-base transition-all border-2 rounded-xl",
-                    isUrlValid ? "border-green-500 bg-green-50/30" : "border-slate-300"
-                  )}
-                  required
-                />
-                {isUrlValid && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                    <Check className="w-5 h-5 text-green-600" />
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-slate-500 mt-2">
-                Powered by AI — we analyze your site, presence in AI answers, and visibility signals across the web.
-              </p>
-            </div>
           )}
 
           {/* Submit Button */}
           <Button
             type="submit"
-            disabled={isScanning || !isEmailValid || (scanMode === 'local' ? (!businessName || !country || !placeId) : !isUrlValid)}
+            disabled={isScanning || !isLocalReady}
             className={cn(
-              "w-full h-14 text-base font-semibold rounded-xl transition-all",
+              "w-full h-14 text-base font-bold rounded-xl transition-all mt-2",
               isScanning
                 ? "bg-theme-gradient opacity-70 cursor-not-allowed"
-                : (!isEmailValid || (scanMode === 'local' ? (!businessName || !country || !placeId) : !isUrlValid))
+                : !isLocalReady
                   ? "bg-theme-gradient opacity-50 cursor-not-allowed"
-                  : "bg-theme-gradient hover:shadow-xl hover:-translate-y-1"
+                  : "bg-theme-gradient hover:shadow-xl hover:-translate-y-0.5"
             )}
           >
             {isScanning ? (
               <>
                 <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                {scanProgress || 'Scanning...'}
+                {scanProgress || 'Scanning your business...'}
               </>
             ) : (
               <>
-                <Zap className="w-5 h-5 mr-2" />
-                Run Free Scan
+                Run My Free Scan
                 <ArrowRight className="w-5 h-5 ml-2" />
               </>
             )}
           </Button>
 
-          {scanMode === 'local' && !placeId && businessName && businessName.length >= 2 && (
-            <p className="text-center text-sm text-purple-600 flex items-center justify-center gap-1">
-              <AlertTriangle className="w-4 h-4" /> Please select your business from the dropdown above to enable scanning
-            </p>
-          )}
+          {/* Trust signals */}
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1">
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Check className="w-3 h-3 text-slate-400" /> Takes 30 seconds
+            </span>
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Check className="w-3 h-3 text-slate-400" /> No credit card required
+            </span>
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Check className="w-3 h-3 text-slate-400" /> Instant results
+            </span>
+          </div>
 
         </form>
       </CardContent>

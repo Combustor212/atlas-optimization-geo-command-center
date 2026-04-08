@@ -594,6 +594,15 @@ function scanReportToScanData(scanReport, leadMeta = {}) {
   };
 }
 
+/** Fire a TikTok pixel event safely */
+function fireTTQ(event, params = {}) {
+  try {
+    if (typeof window !== 'undefined' && window.ttq) {
+      window.ttq.track(event, params);
+    }
+  } catch (_) {}
+}
+
 export default function ScanResults() {
   const [scanData, setScanData] = useState(null);
   const [planRecommendation, setPlanRecommendation] = useState(null);
@@ -609,10 +618,24 @@ export default function ScanResults() {
   const [lastResponseKeys, setLastResponseKeys] = useState(null);
   const [scanResponseKeys, setScanResponseKeys] = useState(null);
   const [geoResponseKeys, setGeoResponseKeys] = useState(null);
+  // Phone capture state (post-results CTA)
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneSubmitted, setPhoneSubmitted] = useState(false);
+  const [isSubmittingPhone, setIsSubmittingPhone] = useState(false);
   const navigate = useNavigate();
 
   const isEmbedMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
   const containerClass = isEmbedMode ? 'max-w-full w-full min-w-0' : 'max-w-[1040px]';
+
+  // Fire TikTok ViewContent when scan results are ready
+  useEffect(() => {
+    if (!isLoading && scanData && !isEmbedMode) {
+      fireTTQ('ViewContent', {
+        content_name: 'Scan Results',
+        content_type: 'scan_complete',
+      });
+    }
+  }, [isLoading, scanData, isEmbedMode]);
 
   // ============================================================================
   // SINGLE SOURCE OF TRUTH: Compute scan readiness phase
@@ -1271,7 +1294,29 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   };
 
   const handleBookACall = () => {
+    fireTTQ('ClickButton', { content_name: 'Book Strategy Call CTA' });
     window.location.href = createPageUrl('GetSupport') + '?book=1';
+  };
+
+  const handlePhoneSubmit = async () => {
+    if (!phoneNumber || phoneNumber.trim().length < 5) return;
+    setIsSubmittingPhone(true);
+    try {
+      // Send phone to admin as a notification email (fire and forget)
+      const businessName = scanData?.business?.name || 'Unknown';
+      const email = scanData?.email || '';
+      await SendEmail({
+        to: 'info@atlasgrowths.com',
+        subject: `📱 Phone Lead: ${businessName}`,
+        body: `<p><strong>Business:</strong> ${businessName}</p><p><strong>Email:</strong> ${email}</p><p><strong>Phone:</strong> ${phoneNumber}</p><p><em>Requested results via SMS from ScanResults page.</em></p>`,
+      }).catch(() => {});
+      fireTTQ('SubmitForm', { content_name: 'Phone Capture - Scan Results' });
+      setPhoneSubmitted(true);
+    } catch (_) {
+      setPhoneSubmitted(true);
+    } finally {
+      setIsSubmittingPhone(false);
+    }
   };
 
   const handleIntegrationDemo = () => {
@@ -2222,12 +2267,55 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                     </p>
                     <Button
                       onClick={handleBookACall}
-                      className="group inline-flex items-center gap-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-base px-9 py-4 h-auto rounded-xl shadow-lg shadow-indigo-900/40 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl"
+                      className="group inline-flex items-center gap-3 bg-indigo-500 hover:bg-indigo-400 text-white font-bold text-base px-9 py-4 h-auto rounded-xl shadow-lg shadow-indigo-900/40 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl w-full sm:w-auto justify-center"
                     >
                       <Calendar className="w-5 h-5" />
-                      Book Your Free Strategy Call
-                      <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      Book My Free Strategy Call →
                     </Button>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Usually $500 · Free for the next 10 businesses
+                    </p>
+
+                    {/* Phone capture — for leads who won't book a call */}
+                    <div className="mt-6 pt-6 border-t border-white/10">
+                      {phoneSubmitted ? (
+                        <p className="text-emerald-400 text-sm font-medium flex items-center justify-center gap-2">
+                          <Check className="w-4 h-4" /> Got it! We'll text you shortly.
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-slate-400 text-sm mb-3">
+                            Or drop your number and we'll reach out
+                          </p>
+                          <div className="flex gap-2 max-w-sm mx-auto">
+                            <input
+                              type="tel"
+                              value={phoneNumber}
+                              onChange={(e) => setPhoneNumber(e.target.value)}
+                              placeholder="Your phone number"
+                              style={{ fontSize: '16px' }}
+                              className="flex-1 h-12 px-4 text-base bg-white/10 border border-white/20 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={handlePhoneSubmit}
+                              disabled={isSubmittingPhone || !phoneNumber}
+                              className="h-12 px-4 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all whitespace-nowrap flex items-center gap-1"
+                            >
+                              {isSubmittingPhone ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Phone className="w-4 h-4" />
+                                  Text Me
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <p className="mt-5 text-xs text-slate-500">
                       No credit card · 20 min · Instant calendar access
                     </p>

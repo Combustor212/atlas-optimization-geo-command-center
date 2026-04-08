@@ -94,6 +94,12 @@ import Invisibility from "./Invisibility";
 
 import OnlineReport from "./online-report";
 
+import ScanRouter from "./ScanRouter";
+
+import ScanPageA from "./ScanPageA";
+
+import ScanPageB from "./ScanPageB";
+
 import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 
 const PAGES = {
@@ -191,6 +197,10 @@ const PAGES = {
     Invisibility: Invisibility,
     
     "online-report": OnlineReport,
+
+    ScanRouter: ScanRouter,
+    "scan-a": ScanPageA,
+    "scan-b": ScanPageB,
     
 }
 
@@ -310,6 +320,11 @@ function PagesContent() {
                 <Route path="/Invisibility" element={<Invisibility />} />
                 
                 <Route path="/online-report" element={<OnlineReport />} />
+
+                {/* A/B test scan pages */}
+                <Route path="/scan" element={<ScanRouter />} />
+                <Route path="/scan-a" element={<ScanPageA />} />
+                <Route path="/scan-b" element={<ScanPageB />} />
                 
             </Routes>
         </Layout>
