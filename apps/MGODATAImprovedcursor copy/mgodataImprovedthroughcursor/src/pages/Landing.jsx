@@ -24,6 +24,7 @@ import ScanCounter from '../components/ScanCounter';
 import FAQSection from '../components/cms/FAQSection';
 import SEOHead from '../components/cms/SEOHead';
 import FrontendOnlyScanner from '../components/scanner/FrontendOnlyScanner';
+import SlimScanner from '../components/scanner/SlimScanner';
 import LiveAIVisibilityExample from '../components/LiveAIVisibilityExample';
 import { SendEmail } from '@/api/integrations';
 import ReportPreviewPopup from '../components/ReportPreviewPopup';
@@ -829,22 +830,17 @@ export default function Landing() {
             }}
           />
 
-          <div className="text-center mb-12">
+          <div className="text-center mb-10">
             <h2 className="text-4xl font-bold text-slate-900 mb-4">
-              Start Your Free Scan
+              See How Visible Your Business Really Is
             </h2>
-            <p className="text-xl text-slate-600 mb-8">
-              Enter your business details and get instant AI-powered insights
+            <p className="text-xl text-slate-600 mb-2">
+              Free 30-second scan. Instant Google + AI visibility score.
             </p>
           </div>
 
           <div ref={scanFormRef}>
-            <FrontendOnlyScanner 
-              onScanComplete={handleScanComplete} 
-              scanMode="local"
-              onBusinessNameChange={setHeroBusinessName}
-              onUrlChange={setHeroUrl}
-            />
+            <SlimScanner onBusinessNameChange={setHeroBusinessName} />
           </div>
         </div>
       </section>
