@@ -40,7 +40,7 @@ export type TikTokServerLeadEvent = {
 export async function trackTikTokLeadEvent(params: TikTokServerLeadEvent): Promise<void> {
   const accessToken = process.env.TIKTOK_EVENTS_ACCESS_TOKEN
   const pixelCode =
-    process.env.TIKTOK_PIXEL_CODE?.trim() || 'D71V5BJC77UAEQ8SFAE0'
+    process.env.TIKTOK_PIXEL_CODE?.trim() || 'D7JADEJC77UDQGOITQOG'
   const testEventCode = process.env.TIKTOK_TEST_EVENT_CODE?.trim()
 
   if (!accessToken) {
