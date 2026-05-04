@@ -225,14 +225,14 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
     fireTTQ('Lead', { content_name: 'scan-landing' });
 
     setIsScanning(true);
-    const effectiveCity = fallbackMode ? fallbackCity : city;
-    const cityParts     = effectiveCity.split(',').map(s => s.trim());
+    const resolvedCity = fallbackCity || city;
+    const cityParts    = resolvedCity.split(',').map(s => s.trim());
     const scanPending   = {
       placeId:       placeId || undefined,
       placeData:     serializePlaceData(placeData),
       businessName,
-      city:          cityParts[0] || 'Unknown',
-      state:         cityParts[1] || cityParts[0] || 'Unknown',
+      city:          cityParts[0] || businessName,
+      state:         cityParts[1] || '',
       country:       country || undefined,
       email:         email?.trim() || undefined,
       phone:         placeData?.formatted_phone_number || placeData?.international_phone_number || undefined,
