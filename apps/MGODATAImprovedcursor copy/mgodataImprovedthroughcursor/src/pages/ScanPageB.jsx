@@ -37,6 +37,10 @@ function fireTTQ(event, params = {}) {
 function serializePlaceData(place) {
   if (!place) return null;
   try {
+    // Google Maps SDK returns lat/lng as functions — extract to plain numbers
+    const loc = place.geometry?.location;
+    const lat = loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : undefined;
+    const lng = loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : undefined;
     const safe = {
       place_id: place.place_id, name: place.name, formatted_address: place.formatted_address,
       address_components: place.address_components, website: place.website,
@@ -45,6 +49,7 @@ function serializePlaceData(place) {
       opening_hours: place.opening_hours, rating: place.rating,
       user_ratings_total: place.user_ratings_total, types: place.types,
       business_status: place.business_status,
+      geometry: (lat != null && lng != null) ? { location: { lat, lng } } : undefined,
     };
     return JSON.parse(JSON.stringify(safe));
   } catch { return { place_id: place.place_id, name: place.name, formatted_address: place.formatted_address }; }
@@ -134,7 +139,7 @@ export default function ScanPageB() {
     if (window.google?.maps?.places?.PlacesService) {
       const mapDiv = document.createElement('div');
       const svc = new window.google.maps.places.PlacesService(new window.google.maps.Map(mapDiv));
-      svc.getDetails({ placeId: pid, fields: ['place_id','name','formatted_address','address_components','website','international_phone_number','formatted_phone_number','opening_hours','rating','user_ratings_total','types','business_status','photos'] }, (result, status) => {
+      svc.getDetails({ placeId: pid, fields: ['place_id','name','formatted_address','address_components','geometry','website','international_phone_number','formatted_phone_number','opening_hours','rating','user_ratings_total','types','business_status','photos'] }, (result, status) => {
         if (status === window.google.maps.places.PlacesServiceStatus.OK && result) {
           setPlaceData(result);
           if (result.address_components?.length) fillFromPlace(result);
