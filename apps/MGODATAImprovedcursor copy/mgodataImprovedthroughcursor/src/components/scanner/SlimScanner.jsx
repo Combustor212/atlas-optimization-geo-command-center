@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import ScanLoadingOverlay from '@/components/ScanLoadingOverlay';
 import { useGoogleMaps, useAutocompleteService } from '@/components/utils/useGoogleMaps';
 import { Check, Loader2, ArrowRight, AlertTriangle } from 'lucide-react';
+import { getApiBaseUrl } from '@/config/api';
 import { toast } from 'sonner';
 
 const SCAN_PENDING_KEY = 'scanPending';
@@ -82,16 +83,44 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   const { getPredictions, isLoaded: autocompleteReady }  = useAutocompleteService();
 
   // ── Autocomplete ───────────────────────────────────────────────────────────
+
+  // Backend proxy for autocomplete — used when the browser-side API key has
+  // domain restrictions that block atlasgrowths.com requests.
+  const fetchFromBackend = useCallback(async (query) => {
+    try {
+      const base = getApiBaseUrl();
+      const res = await fetch(`${base}/api/places/autocomplete?input=${encodeURIComponent(query)}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data.predictions) ? data.predictions : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
   const fetchSuggestions = useCallback(async (query) => {
-    if (!query || query.length < 2 || !getPredictions) { setSuggestions([]); setShowDropdown(false); return; }
+    if (!query || query.length < 2) { setSuggestions([]); setShowDropdown(false); return; }
     setIsLoadingSuggestions(true);
     try {
-      const preds = await getPredictions(query);
-      setSuggestions(preds || []);
-      setShowDropdown((preds?.length ?? 0) > 0);
+      let preds = [];
+      if (getPredictions) {
+        try {
+          preds = await getPredictions(query) || [];
+        } catch {
+          // Client-side key blocked (referrer restriction) — fall back to backend proxy
+          preds = await fetchFromBackend(query);
+        }
+      } else {
+        // Autocomplete service not ready — go straight to backend proxy
+        preds = await fetchFromBackend(query);
+      }
+      setSuggestions(preds);
+      setShowDropdown(preds.length > 0);
     } catch { setSuggestions([]); setShowDropdown(false); }
     finally { setIsLoadingSuggestions(false); }
-  }, [getPredictions]);
+  }, [getPredictions, fetchFromBackend]);
 
   const fillFromPlace = useCallback((place) => {
     const components = place?.address_components || [];
@@ -159,15 +188,15 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Debounced fetch
+  // Debounced fetch — runs whether or not the JS SDK is ready (backend proxy covers it)
   useEffect(() => {
-    if (!autocompleteReady || !businessName || placeId) {
-      if (!businessName || placeId) { setSuggestions([]); setShowDropdown(false); }
+    if (!businessName || placeId) {
+      setSuggestions([]); setShowDropdown(false);
       return;
     }
-    const t = setTimeout(() => fetchSuggestions(businessName), 300);
+    const t = setTimeout(() => fetchSuggestions(businessName), 350);
     return () => clearTimeout(t);
-  }, [businessName, placeId, autocompleteReady, fetchSuggestions]);
+  }, [businessName, placeId, fetchSuggestions]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBusinessChange = (e) => {
@@ -238,10 +267,9 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   type="text"
                   value={businessName}
                   onChange={handleBusinessChange}
-                  placeholder={autocompleteReady ? 'Start typing your business name' : 'Loading...'}
+                  placeholder="Start typing your business name"
                   autoComplete="off"
                   required
-                  disabled={!autocompleteReady}
                   style={{ fontSize: '16px' }}
                   className={cn(
                     'w-full h-14 px-4 pr-10 border-2 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all',
@@ -294,10 +322,17 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                 </p>
               )}
               {!placeId && !fallbackMode && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
-                <p className="mt-1.5 text-xs text-slate-400 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 text-amber-400" /> Select from the dropdown above
-                  <button type="button" onClick={() => setFallbackMode(true)} className="ml-1 text-blue-500 underline">or enter manually</button>
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackMode(true)}
+                  className="mt-2 w-full py-2.5 px-3 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between hover:bg-amber-100 active:bg-amber-200 transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                    Can't find your business? Search by city instead
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                </button>
               )}
             </div>
 
