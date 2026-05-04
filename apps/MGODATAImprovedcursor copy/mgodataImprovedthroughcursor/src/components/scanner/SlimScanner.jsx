@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import ScanLoadingOverlay from '@/components/ScanLoadingOverlay';
 import { useGoogleMaps, useAutocompleteService } from '@/components/utils/useGoogleMaps';
 import { Check, Loader2, ArrowRight, AlertTriangle } from 'lucide-react';
-import { getApiBaseUrl } from '@/config/api';
 import { toast } from 'sonner';
 
 const SCAN_PENDING_KEY = 'scanPending';
@@ -34,7 +33,6 @@ function fireTTQ(event, params = {}) {
 function serializePlaceData(place) {
   if (!place) return null;
   try {
-    // Google Maps SDK returns lat/lng as functions — extract to plain numbers
     const loc = place.geometry?.location;
     const lat = loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : undefined;
     const lng = loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : undefined;
@@ -79,48 +77,24 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   const businessInputRef = useRef(null);
   const dropdownRef      = useRef(null);
 
-  const { isLoaded: mapsLoaded }                         = useGoogleMaps();
-  const { getPredictions, isLoaded: autocompleteReady }  = useAutocompleteService();
+  const { isLoaded: mapsLoaded }                        = useGoogleMaps();
+  const { getPredictions, isLoaded: autocompleteReady } = useAutocompleteService();
 
   // ── Autocomplete ───────────────────────────────────────────────────────────
-
-  // Backend proxy for autocomplete — used when the browser-side API key has
-  // domain restrictions that block atlasgrowths.com requests.
-  const fetchFromBackend = useCallback(async (query) => {
-    try {
-      const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/places?action=autocomplete&input=${encodeURIComponent(query)}`, {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data.predictions) ? data.predictions : [];
-    } catch {
-      return [];
-    }
-  }, []);
-
   const fetchSuggestions = useCallback(async (query) => {
-    if (!query || query.length < 2) { setSuggestions([]); setShowDropdown(false); return; }
+    if (!query || query.length < 2 || !getPredictions) { setSuggestions([]); setShowDropdown(false); return; }
     setIsLoadingSuggestions(true);
     try {
-      let preds = [];
-      if (getPredictions) {
-        try {
-          preds = await getPredictions(query) || [];
-        } catch {
-          // Client-side key blocked (referrer restriction) — fall back to backend proxy
-          preds = await fetchFromBackend(query);
-        }
-      } else {
-        // Autocomplete service not ready — go straight to backend proxy
-        preds = await fetchFromBackend(query);
-      }
-      setSuggestions(preds);
-      setShowDropdown(preds.length > 0);
-    } catch { setSuggestions([]); setShowDropdown(false); }
-    finally { setIsLoadingSuggestions(false); }
-  }, [getPredictions, fetchFromBackend]);
+      const preds = await getPredictions(query);
+      setSuggestions(preds || []);
+      setShowDropdown((preds?.length ?? 0) > 0);
+    } catch {
+      setSuggestions([]);
+      setShowDropdown(false);
+    } finally {
+      setIsLoadingSuggestions(false);
+    }
+  }, [getPredictions]);
 
   const fillFromPlace = useCallback((place) => {
     const components = place?.address_components || [];
@@ -128,11 +102,11 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
       const c = components.find(x => x.types?.includes(type));
       return c ? (short ? c.short_name : c.long_name) : '';
     };
-    const street    = [getComp('street_number'), getComp('route')].filter(Boolean).join(' ').trim();
-    const cityVal   = getComp('locality');
-    const state     = getComp('administrative_area_level_1', true);
-    const countryVal= getComp('country');
-    const zip       = getComp('postal_code');
+    const street     = [getComp('street_number'), getComp('route')].filter(Boolean).join(' ').trim();
+    const cityVal    = getComp('locality');
+    const state      = getComp('administrative_area_level_1', true);
+    const countryVal = getComp('country');
+    const zip        = getComp('postal_code');
     if (street)    setStreetAddress(street);
     if (cityVal)   setCity(state ? `${cityVal}, ${state}` : cityVal);
     if (countryVal) {
@@ -181,22 +155,24 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target) && businessInputRef.current && !businessInputRef.current.contains(e.target))
-        setShowDropdown(false);
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+        businessInputRef.current && !businessInputRef.current.contains(e.target)
+      ) setShowDropdown(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Debounced fetch — runs whether or not the JS SDK is ready (backend proxy covers it)
+  // Debounced fetch — only runs once autocomplete service is ready
   useEffect(() => {
-    if (!businessName || placeId) {
-      setSuggestions([]); setShowDropdown(false);
+    if (!autocompleteReady || !businessName || placeId) {
+      if (!businessName || placeId) { setSuggestions([]); setShowDropdown(false); }
       return;
     }
-    const t = setTimeout(() => fetchSuggestions(businessName), 350);
+    const t = setTimeout(() => fetchSuggestions(businessName), 300);
     return () => clearTimeout(t);
-  }, [businessName, placeId, fetchSuggestions]);
+  }, [businessName, placeId, autocompleteReady, fetchSuggestions]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBusinessChange = (e) => {
@@ -212,27 +188,26 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
     setIsEmailValid(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value));
   };
 
-  // Allow scan when: email valid + business name + (autocomplete selected OR any city provided)
-  const effectiveCity = placeId ? city : (fallbackCity || city);
-  const isReady = !!businessName?.trim() && isEmailValid && (!!placeId || !!effectiveCity.trim());
+  const isReady = !!businessName && isEmailValid && (fallbackMode ? !!fallbackCity : !!placeId);
 
   const handleScan = () => {
-    if (!isEmailValid)         { toast.error('Please enter a valid email'); return; }
-    if (!businessName?.trim()) { toast.error('Please enter a business name'); return; }
-    if (!placeId && !effectiveCity.trim()) { toast.error('Please enter your city so we can find your business'); return; }
+    if (!isEmailValid)                       { toast.error('Please enter a valid email'); return; }
+    if (!businessName?.trim())               { toast.error('Please enter a business name'); return; }
+    if (fallbackMode && !fallbackCity)       { toast.error('Please enter your city'); return; }
+    if (!fallbackMode && !placeId)           { toast.error('Please select your business from the dropdown'); return; }
 
     fireTTQ('SubmitForm', { content_name: 'Free Visibility Scan', content_type: 'lead_form' });
     fireTTQ('Lead', { content_name: 'scan-landing' });
 
     setIsScanning(true);
-    const resolvedCity = fallbackCity || city;
-    const cityParts    = resolvedCity.split(',').map(s => s.trim());
+    const effectiveCity = fallbackMode ? fallbackCity : city;
+    const cityParts     = effectiveCity.split(',').map(s => s.trim());
     const scanPending   = {
       placeId:       placeId || undefined,
       placeData:     serializePlaceData(placeData),
       businessName,
-      city:          cityParts[0] || businessName,
-      state:         cityParts[1] || '',
+      city:          cityParts[0] || 'Unknown',
+      state:         cityParts[1] || cityParts[0] || 'Unknown',
       country:       country || undefined,
       email:         email?.trim() || undefined,
       phone:         placeData?.formatted_phone_number || placeData?.international_phone_number || undefined,
@@ -268,17 +243,22 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   type="text"
                   value={businessName}
                   onChange={handleBusinessChange}
-                  placeholder="Start typing your business name"
+                  placeholder={autocompleteReady ? 'Start typing your business name' : 'Loading search...'}
                   autoComplete="off"
                   required
+                  disabled={!autocompleteReady}
                   style={{ fontSize: '16px' }}
                   className={cn(
                     'w-full h-14 px-4 pr-10 border-2 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all',
                     placeId ? 'border-green-500 bg-green-50/20' : 'border-slate-200 bg-white'
                   )}
                 />
-                {placeId && <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600 pointer-events-none" />}
-                {isLoadingSuggestions && !placeId && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500 animate-spin pointer-events-none" />}
+                {placeId && (
+                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600 pointer-events-none" />
+                )}
+                {isLoadingSuggestions && !placeId && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500 animate-spin pointer-events-none" />
+                )}
 
                 {/* Dropdown */}
                 {showDropdown && suggestions.length > 0 && (
@@ -295,7 +275,9 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                           {pred.structured_formatting?.main_text ?? pred.description}
                         </div>
                         {pred.structured_formatting?.secondary_text && (
-                          <div className="text-xs text-slate-500 mt-0.5 truncate">{pred.structured_formatting.secondary_text}</div>
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">
+                            {pred.structured_formatting.secondary_text}
+                          </div>
                         )}
                       </button>
                     ))}
@@ -311,7 +293,7 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                 )}
               </div>
 
-              {/* Silent auto-fill hint */}
+              {/* Hint text */}
               {!placeId && !fallbackMode && (
                 <p className="mt-1.5 text-xs text-slate-400">
                   Address, city, country auto-fill silently in background
@@ -322,25 +304,24 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   <Check className="w-3 h-3" /> Location captured
                 </p>
               )}
-              {!placeId && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
-                <button
-                  type="button"
-                  onClick={() => setFallbackMode(true)}
-                  className="mt-2 w-full py-2.5 px-3 text-sm font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between hover:bg-amber-100 active:bg-amber-200 transition-colors"
-                >
-                  <span className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                    Enter your city to find your business
-                  </span>
-                  <ArrowRight className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                </button>
+              {!placeId && !fallbackMode && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
+                <p className="mt-1.5 text-xs text-slate-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-400" /> Select from the dropdown above
+                  <button
+                    type="button"
+                    onClick={() => setFallbackMode(true)}
+                    className="ml-1 text-blue-500 underline"
+                  >
+                    or enter manually
+                  </button>
+                </p>
               )}
             </div>
 
-            {/* ── City input — shown when no business is autocomplete-selected ── */}
-            {!placeId && fallbackMode && (
+            {/* ── City fallback (manual entry) ───────────────────────────── */}
+            {fallbackMode && (
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Your City *</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Your City</label>
                 <input
                   type="text"
                   value={fallbackCity}
@@ -369,7 +350,9 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                     isEmailValid ? 'border-green-500 bg-green-50/20' : 'border-slate-200 bg-white'
                   )}
                 />
-                {isEmailValid && <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600 pointer-events-none" />}
+                {isEmailValid && (
+                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600 pointer-events-none" />
+                )}
               </div>
             </div>
 
@@ -392,9 +375,15 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
 
             {/* ── Trust signals ──────────────────────────────────────────── */}
             <div className="flex items-center justify-center gap-4 pt-0.5">
-              <span className="text-xs text-slate-400 flex items-center gap-1"><Check className="w-3 h-3 text-slate-400" /> 30 seconds</span>
-              <span className="text-xs text-slate-400 flex items-center gap-1"><Check className="w-3 h-3 text-slate-400" /> No credit card</span>
-              <span className="text-xs text-slate-400 flex items-center gap-1"><Check className="w-3 h-3 text-slate-400" /> No pitch</span>
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Check className="w-3 h-3 text-slate-400" /> 30 seconds
+              </span>
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Check className="w-3 h-3 text-slate-400" /> No credit card
+              </span>
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Check className="w-3 h-3 text-slate-400" /> No pitch
+              </span>
             </div>
 
             {/* ── Bottom pill ────────────────────────────────────────────── */}
