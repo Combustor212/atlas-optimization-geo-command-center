@@ -191,6 +191,9 @@ async function processScan(placeDetails, { business_name, city, state, location,
         country: country || undefined,
         address: placeDetails?.formatted_address || placeDetails?.formattedAddress || undefined,
         photoCount: photoCount || (placeDetails?.photos || []).length || undefined,
+        // Send full place data so backend can use it if its own Google Places call fails
+        // (e.g. API key has referrer restrictions blocking server-side requests)
+        place_data: placeDetails || undefined,
       })
     });
     

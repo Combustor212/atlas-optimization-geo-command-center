@@ -332,30 +332,57 @@ export async function POST(req: NextRequest) {
 
     // ── 1. Resolve place_id ────────────────────────────────────────────────
     const placeResolveStart = Date.now()
+    // Client-supplied place_data (from browser autocomplete) — used as fallback
+    // when server-side Google Places calls fail (e.g. API key referrer restrictions)
+    const clientPlaceData = body.place_data && typeof body.place_data === 'object'
+      ? (body.place_data as Record<string, unknown>)
+      : null
+
     if (!placeId) {
+      // Try to resolve via Google Places first
       const query = `${businessName}, ${location}`.trim()
       console.log('[MEO Scan] Resolving place for:', query)
       const found = await findPlaceFromText(query)
-      if (!found) {
+      if (found) {
+        placeId = found
+      } else if (clientPlaceData?.place_id) {
+        // Fall back to client-supplied place_id
+        console.warn('[MEO Scan] findPlaceFromText failed — using client place_id:', clientPlaceData.place_id)
+        placeId = String(clientPlaceData.place_id)
+      } else {
         return NextResponse.json(
           { error: 'Place not found', message: `Could not find: ${query}` },
           { status: 404, headers: CORS_HEADERS }
         )
       }
-      placeId = found
     }
     timings.placeResolve = Date.now() - placeResolveStart
 
     // ── 2. Fetch full place details (geometry required for competitive MEO) ─
     const placeDetailStart = Date.now()
-    const place = await getPlaceDetails(placeId)
+    let place = await getPlaceDetails(placeId)
     timings.placeDetail = Date.now() - placeDetailStart
 
     if (!place) {
-      return NextResponse.json(
-        { error: 'Place details not found', details: { place_id: placeId } },
-        { status: 404, headers: CORS_HEADERS }
-      )
+      // Google Places API failed (key may have referrer restrictions that block server-side calls).
+      // Use client-supplied place_data if available so lead capture still runs.
+      if (clientPlaceData && clientPlaceData.name) {
+        console.warn('[MEO Scan] getPlaceDetails failed — using client place_data for lead capture')
+        place = clientPlaceData
+      } else if (businessName) {
+        // Build minimal place so lead capture can still run
+        console.warn('[MEO Scan] getPlaceDetails failed — building minimal place from request body')
+        place = {
+          place_id: placeId,
+          name: businessName,
+          formatted_address: [body.address, body.city, body.state, body.country].filter(Boolean).join(', ') || undefined,
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'Place details not found', details: { place_id: placeId } },
+          { status: 404, headers: CORS_HEADERS }
+        )
+      }
     }
 
     const locationStr = location.trim() || (place.formatted_address as string) || ''
