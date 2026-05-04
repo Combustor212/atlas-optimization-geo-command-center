@@ -89,8 +89,8 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   const fetchFromBackend = useCallback(async (query) => {
     try {
       const base = getApiBaseUrl();
-      const res = await fetch(`${base}/api/places/autocomplete?input=${encodeURIComponent(query)}`, {
-        signal: AbortSignal.timeout(2000),
+      const res = await fetch(`${base}/api/places?action=autocomplete&input=${encodeURIComponent(query)}`, {
+        signal: AbortSignal.timeout(4000),
       });
       if (!res.ok) return [];
       const data = await res.json();
@@ -322,7 +322,7 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   <Check className="w-3 h-3" /> Location captured
                 </p>
               )}
-              {!placeId && businessName.length >= 2 && !showDropdown && (
+              {!placeId && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
                 <button
                   type="button"
                   onClick={() => setFallbackMode(true)}
