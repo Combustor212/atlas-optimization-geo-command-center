@@ -90,7 +90,7 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
     try {
       const base = getApiBaseUrl();
       const res = await fetch(`${base}/api/places/autocomplete?input=${encodeURIComponent(query)}`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(2000),
       });
       if (!res.ok) return [];
       const data = await res.json();
@@ -212,13 +212,14 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
     setIsEmailValid(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.target.value));
   };
 
-  const isReady = !!businessName && isEmailValid && (fallbackMode ? !!fallbackCity : !!placeId);
+  // Allow scan when: email valid + business name + (autocomplete selected OR any city provided)
+  const effectiveCity = placeId ? city : (fallbackCity || city);
+  const isReady = !!businessName?.trim() && isEmailValid && (!!placeId || !!effectiveCity.trim());
 
   const handleScan = () => {
-    if (!isEmailValid)            { toast.error('Please enter a valid email'); return; }
-    if (!businessName?.trim())    { toast.error('Please enter a business name'); return; }
-    if (fallbackMode && !fallbackCity) { toast.error('Please enter your city'); return; }
-    if (!fallbackMode && !placeId)    { toast.error('Please select your business from the dropdown'); return; }
+    if (!isEmailValid)         { toast.error('Please enter a valid email'); return; }
+    if (!businessName?.trim()) { toast.error('Please enter a business name'); return; }
+    if (!placeId && !effectiveCity.trim()) { toast.error('Please enter your city so we can find your business'); return; }
 
     fireTTQ('SubmitForm', { content_name: 'Free Visibility Scan', content_type: 'lead_form' });
     fireTTQ('Lead', { content_name: 'scan-landing' });
@@ -321,7 +322,7 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   <Check className="w-3 h-3" /> Location captured
                 </p>
               )}
-              {!placeId && !fallbackMode && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
+              {!placeId && businessName.length >= 2 && !showDropdown && (
                 <button
                   type="button"
                   onClick={() => setFallbackMode(true)}
@@ -329,22 +330,23 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                 >
                   <span className="flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                    Can't find your business? Search by city instead
+                    Enter your city to find your business
                   </span>
                   <ArrowRight className="w-4 h-4 text-amber-500 flex-shrink-0" />
                 </button>
               )}
             </div>
 
-            {/* ── Fallback city (manual entry) ───────────────────────────── */}
-            {fallbackMode && (
+            {/* ── City input — shown when no business is autocomplete-selected ── */}
+            {!placeId && fallbackMode && (
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Your City</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Your City *</label>
                 <input
                   type="text"
                   value={fallbackCity}
                   onChange={(e) => setFallbackCity(e.target.value)}
                   placeholder="e.g., Miami, FL"
+                  autoFocus
                   style={{ fontSize: '16px' }}
                   className="w-full h-14 px-4 border-2 border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
                 />

@@ -350,10 +350,10 @@ export async function POST(req: NextRequest) {
         console.warn('[MEO Scan] findPlaceFromText failed — using client place_id:', clientPlaceData.place_id)
         placeId = String(clientPlaceData.place_id)
       } else {
-        return NextResponse.json(
-          { error: 'Place not found', message: `Could not find: ${query}` },
-          { status: 404, headers: CORS_HEADERS }
-        )
+        // Google Places API unavailable — continue with business name only.
+        // MEO scoring will be degraded (no geometry) but GEO scoring and lead
+        // capture will still run. Do NOT return 404 — always capture the lead.
+        console.warn('[MEO Scan] findPlaceFromText failed and no client place_id — continuing with name only')
       }
     }
     timings.placeResolve = Date.now() - placeResolveStart
