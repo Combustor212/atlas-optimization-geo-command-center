@@ -147,6 +147,21 @@ export interface MEOScanResponse {
     scoringWarnings?: string[]
     /** Whether this score includes real competitive context or was computed without it */
     competitiveDataAvailable?: boolean
+    /** Diagnostic info about how the competitor fetch performed (per-strategy raw / filtered counts) */
+    competitorDebug?: {
+      attempts: Array<{ strategy: string; rawCount: number; afterFilterCount: number; note?: string }>
+      finalCount: number
+      apiUnreachable: boolean
+      reasonIfUnavailable?: string
+      competitors: Array<{
+        place_id: string
+        name: string
+        rating: number
+        user_ratings_total: number
+        types: string[]
+        formatted_address?: string
+      }>
+    }
   }
 }
 

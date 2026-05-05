@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
 import ScanLoadingOverlay from '@/components/ScanLoadingOverlay';
-import { useGoogleMaps, useAutocompleteService } from '@/components/utils/useGoogleMaps';
 import { Check, Loader2, ArrowRight, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -30,12 +29,50 @@ function fireTTQ(event, params = {}) {
   try { if (window.ttq) window.ttq.track(event, params); } catch (_) {}
 }
 
+// Normalize lat/lng across every shape we've ever seen from autocomplete predictions,
+// the legacy Places Details API, the new Places API v1, and our serverless proxy.
+// MEO scoring requires geometry.location.{lat,lng}; missing it produces
+// "MEO scoring blocked: Geometry location (latitude/longitude) is required".
+function normalizePlaceGeometry(place) {
+  if (!place) return { lat: undefined, lng: undefined };
+  const loc = place.geometry?.location;
+  const rawLat =
+    place.latitude ??
+    place.lat ??
+    (loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : undefined) ??
+    place.location?.latitude;
+  const rawLng =
+    place.longitude ??
+    place.lng ??
+    (loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : undefined) ??
+    place.location?.longitude;
+  const lat = typeof rawLat === 'number' ? rawLat : Number(rawLat);
+  const lng = typeof rawLng === 'number' ? rawLng : Number(rawLng);
+  return {
+    lat: Number.isFinite(lat) ? lat : undefined,
+    lng: Number.isFinite(lng) ? lng : undefined,
+  };
+}
+
 function serializePlaceData(place) {
   if (!place) return null;
   try {
-    const loc = place.geometry?.location;
-    const lat = loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : undefined;
-    const lng = loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : undefined;
+    const { lat, lng } = normalizePlaceGeometry(place);
+    // Preserve the photos array so the scan backend can use it as a fallback
+    // when its server-side Places Details call is blocked (e.g. by referrer
+    // restrictions on the production GOOGLE_PLACES_API_KEY). Strip the heavy
+    // html_attributions to keep payload size small; we only need photo_reference
+    // + height/width for length/count purposes.
+    const photosArray = Array.isArray(place.photos)
+      ? place.photos.map((p) => ({
+          photo_reference: p?.photo_reference,
+          width: typeof p?.width === 'number' ? p.width : undefined,
+          height: typeof p?.height === 'number' ? p.height : undefined,
+        }))
+      : undefined;
+    const photoCountValue = Array.isArray(place.photos)
+      ? place.photos.length
+      : (typeof place.photoCount === 'number' ? place.photoCount : undefined);
     const safe = {
       place_id: place.place_id, name: place.name, formatted_address: place.formatted_address,
       address_components: place.address_components, website: place.website,
@@ -45,6 +82,12 @@ function serializePlaceData(place) {
       user_ratings_total: place.user_ratings_total, types: place.types,
       business_status: place.business_status,
       geometry: (lat != null && lng != null) ? { location: { lat, lng } } : undefined,
+      // Mirror lat/lng at the top level so any downstream consumer that reads
+      // `latitude`/`longitude` instead of `geometry.location` still gets values.
+      latitude: lat,
+      longitude: lng,
+      photos: photosArray,
+      photoCount: photoCountValue,
     };
     return JSON.parse(JSON.stringify(safe));
   } catch { return { place_id: place.place_id, name: place.name, formatted_address: place.formatted_address }; }
@@ -69,32 +112,15 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   const [postalCode, setPostalCode]       = useState('');
   const [suggestions, setSuggestions]     = useState([]);
   const [showDropdown, setShowDropdown]   = useState(false);
-  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [isSearching, setIsSearching]     = useState(false);
+  const [searchError, setSearchError]     = useState('');
   const [fallbackMode, setFallbackMode]   = useState(false);
   const [fallbackCity, setFallbackCity]   = useState('');
   const [isScanning, setIsScanning]       = useState(false);
 
   const businessInputRef = useRef(null);
   const dropdownRef      = useRef(null);
-
-  const { isLoaded: mapsLoaded }                        = useGoogleMaps();
-  const { getPredictions, isLoaded: autocompleteReady } = useAutocompleteService();
-
-  // ── Autocomplete ───────────────────────────────────────────────────────────
-  const fetchSuggestions = useCallback(async (query) => {
-    if (!query || query.length < 2 || !getPredictions) { setSuggestions([]); setShowDropdown(false); return; }
-    setIsLoadingSuggestions(true);
-    try {
-      const preds = await getPredictions(query);
-      setSuggestions(preds || []);
-      setShowDropdown((preds?.length ?? 0) > 0);
-    } catch {
-      setSuggestions([]);
-      setShowDropdown(false);
-    } finally {
-      setIsLoadingSuggestions(false);
-    }
-  }, [getPredictions]);
+  const requestIdRef     = useRef(0);
 
   const fillFromPlace = useCallback((place) => {
     const components = place?.address_components || [];
@@ -117,62 +143,157 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
   }, []);
 
   const handleSelectPrediction = useCallback(async (pred) => {
-    const pid         = pred.place_id;
-    const displayName = pred.structured_formatting?.main_text ?? pred.description ?? '';
+    const pid         = pred.placeId;
+    const displayName = pred.name;
     if (!pid) return;
+
     setBusinessName(displayName);
     if (onBusinessNameChange) onBusinessNameChange(displayName);
     setPlaceId(pid);
     setShowDropdown(false);
     setSuggestions([]);
-    const secondary = pred.structured_formatting?.secondary_text ?? '';
-    if (secondary) {
-      const parts = secondary.split(',').map(s => s.trim());
+    setIsSearching(false);
+    setSearchError('');
+
+    // Populate city/country from the autocomplete address immediately
+    if (pred.address) {
+      const parts = pred.address.split(',').map(s => s.trim());
       if (parts[0]) setCity(parts[0]);
       const lastPart = parts[parts.length - 1];
-      const match = COUNTRIES.find(c => c.toLowerCase() === lastPart?.toLowerCase() || lastPart?.toLowerCase().includes(c.toLowerCase()));
+      const match = COUNTRIES.find(c =>
+        c.toLowerCase() === lastPart?.toLowerCase() ||
+        lastPart?.toLowerCase().includes(c.toLowerCase())
+      );
       if (match) setCountry(match);
     }
-    if (window.google?.maps?.places?.PlacesService) {
-      const mapDiv = document.createElement('div');
-      const svc = new window.google.maps.places.PlacesService(new window.google.maps.Map(mapDiv));
-      svc.getDetails(
-        { placeId: pid, fields: ['place_id','name','formatted_address','address_components','geometry','website','international_phone_number','formatted_phone_number','opening_hours','rating','user_ratings_total','types','business_status','photos'] },
-        (result, status) => {
-          if (status === window.google.maps.places.PlacesServiceStatus.OK && result) {
-            setPlaceData(result);
-            if (result.address_components?.length) fillFromPlace(result);
-          } else {
-            setPlaceData({ place_id: pid, name: displayName });
-          }
+
+    // Fetch full place details from the server-side proxy. The proxy now requests
+    // the `geometry` field, so detail.result.geometry.location.{lat,lng} is populated.
+    // We also mirror lat/lng to the top level so consumers reading `latitude`/`longitude`
+    // (or just `lat`/`lng`) still get values without changing the wire shape.
+    try {
+      const r = await fetch(`/api/places?action=details&place_id=${encodeURIComponent(pid)}`);
+      if (r.ok) {
+        const detail = await r.json();
+        if (detail.status === 'OK' && detail.result) {
+          const result = detail.result;
+          const { lat, lng } = normalizePlaceGeometry(result);
+          const photoCountValue = Array.isArray(result.photos) ? result.photos.length : 0;
+          const enriched = {
+            ...result,
+            ...(lat != null && lng != null
+              ? {
+                  latitude: lat,
+                  longitude: lng,
+                  geometry: { ...(result.geometry || {}), location: { lat, lng } },
+                }
+              : {}),
+            photoCount: photoCountValue,
+          };
+          setPlaceData(enriched);
+          if (result.address_components?.length) fillFromPlace(result);
+        } else {
+          setPlaceData({ place_id: pid, name: displayName });
         }
-      );
-    } else {
+      } else {
+        setPlaceData({ place_id: pid, name: displayName });
+      }
+    } catch {
       setPlaceData({ place_id: pid, name: displayName });
     }
   }, [fillFromPlace, onBusinessNameChange]);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape key
   useEffect(() => {
-    const handler = (e) => {
+    const handleClick = (e) => {
       if (
         dropdownRef.current && !dropdownRef.current.contains(e.target) &&
         businessInputRef.current && !businessInputRef.current.contains(e.target)
       ) setShowDropdown(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const handleKey = (e) => {
+      if (e.key === 'Escape') setShowDropdown(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
-  // Debounced fetch — only runs once autocomplete service is ready
+  // ── Autocomplete: debounced fetch with race-condition protection ──────────
   useEffect(() => {
-    if (!autocompleteReady || !businessName || placeId) {
-      if (!businessName || placeId) { setSuggestions([]); setShowDropdown(false); }
+    const query = businessName.trim();
+
+    if (query.length < 2) {
+      requestIdRef.current += 1; // invalidate any in-flight request
+      setIsSearching(false);
+      setSuggestions([]);
+      setShowDropdown(false);
+      setSearchError('');
       return;
     }
-    const t = setTimeout(() => fetchSuggestions(businessName), 300);
-    return () => clearTimeout(t);
-  }, [businessName, placeId, autocompleteReady, fetchSuggestions]);
+
+    const requestId = ++requestIdRef.current;
+    setSearchError('');
+
+    const timer = setTimeout(async () => {
+      try {
+        setIsSearching(true);
+
+        const res = await fetch(
+          `/api/places?action=autocomplete&input=${encodeURIComponent(query)}`
+        );
+
+        if (!res.ok) throw new Error(`Places request failed: ${res.status}`);
+
+        const data = await res.json();
+
+        if (requestId !== requestIdRef.current) return;
+
+        const raw =
+          data.suggestions ||
+          data.predictions ||
+          data.results ||
+          data.businesses ||
+          [];
+
+        const normalized = raw
+          .map((item) => ({
+            name:
+              item.name ||
+              item.businessName ||
+              item.structured_formatting?.main_text ||
+              item.description ||
+              '',
+            address:
+              item.address ||
+              item.formatted_address ||
+              item.structured_formatting?.secondary_text ||
+              item.vicinity ||
+              item.description ||
+              '',
+            placeId: item.placeId || item.place_id || item.id || '',
+            raw: item,
+          }))
+          .filter((item) => item.name && item.placeId);
+
+        setSuggestions(normalized);
+        setShowDropdown(normalized.length > 0);
+        setSearchError(normalized.length ? '' : 'No businesses found');
+      } catch {
+        if (requestId !== requestIdRef.current) return;
+        setSuggestions([]);
+        setShowDropdown(false);
+        setSearchError('Could not load businesses. Try again.');
+      } finally {
+        if (requestId === requestIdRef.current) setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [businessName]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBusinessChange = (e) => {
@@ -213,7 +334,9 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
       phone:         placeData?.formatted_phone_number || placeData?.international_phone_number || undefined,
       postalCode:    postalCode || undefined,
       streetAddress: streetAddress || placeData?.formatted_address,
-      photoCount:    (placeData?.photos || []).length || undefined,
+      photoCount:    Array.isArray(placeData?.photos)
+                        ? placeData.photos.length
+                        : (typeof placeData?.photoCount === 'number' ? placeData.photoCount : undefined),
     };
     sessionStorage.setItem(SCAN_PENDING_KEY, JSON.stringify(scanPending));
     try { if (email?.trim()) localStorage.setItem(SAVED_EMAIL_KEY, email.trim()); } catch (_) {}
@@ -237,47 +360,49 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   Smart Search
                 </span>
               </label>
+              {/* Input wrapper: must stay `relative` so the spinner anchors to the
+                  input row (not to the dropdown beneath it) and never floats. */}
               <div className="relative">
                 <input
                   ref={businessInputRef}
                   type="text"
                   value={businessName}
                   onChange={handleBusinessChange}
-                  placeholder={autocompleteReady ? 'Start typing your business name' : 'Loading search...'}
+                  placeholder="Business name, city/state, or street"
                   autoComplete="off"
                   required
-                  disabled={!autocompleteReady}
+                  disabled={isScanning}
                   style={{ fontSize: '16px' }}
                   className={cn(
-                    'w-full h-14 px-4 pr-10 border-2 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all',
+                    'w-full h-14 px-4 pr-12 border-2 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-400 transition-all',
                     placeId ? 'border-green-500 bg-green-50/20' : 'border-slate-200 bg-white'
                   )}
                 />
                 {placeId && (
-                  <Check className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-green-600 pointer-events-none" />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Check className="w-5 h-5 text-green-600" />
+                  </div>
                 )}
-                {isLoadingSuggestions && !placeId && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-blue-500 animate-spin pointer-events-none" />
+                {isSearching && businessName.trim().length >= 2 && !placeId && !showDropdown && (
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  </div>
                 )}
 
                 {/* Dropdown */}
-                {showDropdown && suggestions.length > 0 && (
+                {showDropdown && (
                   <div className="absolute z-[10000] w-full mt-1 bg-white border-2 border-blue-200 rounded-xl shadow-2xl max-h-72 overflow-y-auto">
                     {suggestions.map((pred, idx) => (
                       <button
-                        key={pred.place_id ?? idx}
+                        key={pred.placeId ?? idx}
                         type="button"
                         onMouseDown={(e) => { e.preventDefault(); handleSelectPrediction(pred); }}
                         onTouchEnd={(e)  => { e.preventDefault(); handleSelectPrediction(pred); }}
                         className="w-full px-4 py-3.5 text-left hover:bg-blue-50 active:bg-blue-100 border-b border-slate-100 last:border-b-0 first:rounded-t-xl last:rounded-b-xl min-h-[48px] flex flex-col justify-center"
                       >
-                        <div className="font-semibold text-sm text-slate-900">
-                          {pred.structured_formatting?.main_text ?? pred.description}
-                        </div>
-                        {pred.structured_formatting?.secondary_text && (
-                          <div className="text-xs text-slate-500 mt-0.5 truncate">
-                            {pred.structured_formatting.secondary_text}
-                          </div>
+                        <div className="font-semibold text-sm text-slate-900">{pred.name}</div>
+                        {pred.address && (
+                          <div className="text-xs text-slate-500 mt-0.5 truncate">{pred.address}</div>
                         )}
                       </button>
                     ))}
@@ -294,9 +419,9 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
               </div>
 
               {/* Hint text */}
-              {!placeId && !fallbackMode && (
+              {!placeId && !fallbackMode && !searchError && (
                 <p className="mt-1.5 text-xs text-slate-400">
-                  Address, city, country auto-fill silently in background
+                  Tip: add city, state, or street to narrow results.
                 </p>
               )}
               {placeId && (
@@ -304,15 +429,18 @@ export default function SlimScanner({ onBusinessNameChange } = {}) {
                   <Check className="w-3 h-3" /> Location captured
                 </p>
               )}
-              {!placeId && !fallbackMode && businessName.length >= 2 && !showDropdown && !isLoadingSuggestions && (
-                <p className="mt-1.5 text-xs text-slate-400 flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 text-amber-400" /> Select from the dropdown above
+              {searchError && !isSearching && !placeId && !fallbackMode && (
+                <p className="mt-1.5 text-xs text-slate-500 flex items-center gap-1">
+                  {searchError !== 'No businesses found' && (
+                    <AlertTriangle className="w-3 h-3 text-amber-400" />
+                  )}
+                  {searchError}
                   <button
                     type="button"
-                    onClick={() => setFallbackMode(true)}
+                    onClick={() => { setSearchError(''); setFallbackMode(true); }}
                     className="ml-1 text-blue-500 underline"
                   >
-                    or enter manually
+                    Enter manually →
                   </button>
                 </p>
               )}

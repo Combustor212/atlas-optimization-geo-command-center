@@ -26,10 +26,21 @@ export default async function handler(req, res) {
     }
 
     if (action === 'details' && place_id) {
+      // geometry is REQUIRED for MEO scoring (lat/lng for nearbysearch). Omitting it
+      // causes the backend MEO engine to fail with:
+      //   "MEO scoring blocked: Geometry location (latitude/longitude) is required"
+      // when the server-side Places key has referrer restrictions and falls back
+      // to client-supplied place_data.
+      //
+      // photos is REQUIRED for the PHOTOS card and the visual-content scoring
+      // component. Omitting it caused the scan to always show "Photos = 0"
+      // whenever the geo backend's server-side Places call was rejected and
+      // it fell back to this client-supplied place_data.
       const fields = [
         'place_id','name','formatted_address','address_components',
         'website','international_phone_number','formatted_phone_number',
         'opening_hours','rating','user_ratings_total','types','business_status',
+        'geometry','photos','editorial_summary',
       ].join(',');
       const params = new URLSearchParams({ place_id, fields, key });
       const r = await fetch(`${PLACES_BASE}/details/json?${params}`);

@@ -525,10 +525,11 @@ function hasValidExplainV2(explain) {
 
 /** Convert Geo/MGO scanReport payload to AGS scanData format */
 function scanReportToScanData(scanReport, leadMeta = {}) {
-  const scores = scanReport.scores || {};
-  const geo = scanReport.geo || {};
-  const body = scanReport.body || {};
-  const place = scanReport.place || {};
+  const root = scanReport && typeof scanReport === 'object' ? scanReport : {};
+  const scores = root.scores || {};
+  const geo = root.geo || {};
+  const body = root.body || {};
+  const place = root.place || {};
   const innerBody = body.body || body;
   const meoExplain = body.meoExplain || innerBody?.meoExplain || innerBody;
   const marketContext = meoExplain?.marketContext || body.marketContext || innerBody?.marketContext || {};
@@ -836,16 +837,23 @@ export default function ScanResults() {
         }
 
         const { result, leadForwardStatus: topLevelStatus } = scannerData;
+        const place = result?.place && typeof result.place === 'object' ? result.place : {};
         const scanResult = {
           type: 'local',
           email: pending.email,
           leadForwardStatus: result?.leadForwardStatus ?? topLevelStatus,
-          business: { ...result.place, address: result.place.formattedAddress },
+          business: {
+            ...place,
+            address: place.formattedAddress ?? place.formatted_address ?? pending.streetAddress,
+            name: place.name ?? pending.businessName,
+            place_id: place.place_id ?? place.placeId ?? pending.placeId,
+            placeId: place.place_id ?? place.placeId ?? pending.placeId,
+          },
           scores: {
-            meo: result.scores.meo,
-            seo: result.scores.seo ?? null,
-            geo: result.scores.geo,
-            final: result.scores.overall ?? result.scores.final,
+            meo: result.scores?.meo ?? null,
+            seo: result.scores?.seo ?? null,
+            geo: result.scores?.geo ?? null,
+            final: result.scores?.overall ?? result.scores?.final ?? null,
           },
           percentile: result.percentile,
           percentileText: result.percentileText,
@@ -860,6 +868,7 @@ export default function ScanResults() {
           geoComponentBreakdown: result.geoComponentBreakdown ?? null,
           _debugScanResponseKeys: result._debugScanResponseKeys,
           _debugGeoResponseKeys: result._debugGeoResponseKeys,
+          debug: result.debug ?? null,
           metadata: {
             address: pending.streetAddress,
             city: pending.city,
@@ -1000,17 +1009,11 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       const isDemo = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === '1';
       const isEmbed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1';
 
-      // If stored result has no GEO score, it's stale — drop it so we re-scan with the latest backend
+      // Do not discard stored scans solely because GEO is missing — backend may return
+      // partial results (MEO only) after Places/key issues; user should still see the page.
       if (stored && !isDemo) {
         try {
-          const parsed = JSON.parse(stored);
-          const hasGeoScore = typeof parsed?.geo?.score === 'number' || typeof parsed?.scores?.geo === 'number';
-          if (!hasGeoScore) {
-            sessionStorage.removeItem('scanResults');
-            sessionStorage.removeItem('planRecommendation');
-            setIsLoading(false);
-            return;
-          }
+          JSON.parse(stored);
         } catch (_) {
           sessionStorage.removeItem('scanResults');
           setIsLoading(false);
@@ -1087,8 +1090,13 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         const finalScoreKey = data.scores?.overall !== undefined ? 'overall' : 'final';
         const geoScoreValid = data?.scores?.geo == null || typeof data?.scores?.geo === 'number';
         const overallValid = data?.scores?.[finalScoreKey] == null || typeof data?.scores?.[finalScoreKey] === 'number';
-        if (!data.scores || typeof data.scores.meo !== 'number' || !geoScoreValid || !overallValid) {
-          console.error('Invalid or missing scores in scan data');
+        const meoScoreValid = data?.scores?.meo == null || typeof data?.scores?.meo === 'number';
+        if (!data.scores || !meoScoreValid || !geoScoreValid || !overallValid) {
+          console.error('Invalid or missing scores in scan data', {
+            hasScores: !!data.scores,
+            meo: data?.scores?.meo,
+            geo: data?.scores?.geo,
+          });
           setIsLoading(false);
           return;
         }
@@ -1280,6 +1288,21 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
     });
   }, [polledExplainData]);
 
+  // Debug logging — MUST stay with other hooks (before any conditional returns).
+  useEffect(() => {
+    if (!scanData?.debug) return;
+    try {
+      const dbg = scanData.debug;
+      console.groupCollapsed('[Scan debug] backend pipeline');
+      console.log('placeDetails:', dbg?.placeDetails);
+      console.log('competitors:', dbg?.competitors);
+      console.log('env (key configured):', dbg?.env);
+      console.groupEnd();
+    } catch (err) {
+      console.warn('[Scan debug] log failed:', err);
+    }
+  }, [scanData]);
+
   const handleNewScan = () => {
     // Save email for pre-fill on next scan
     const emailToSave = scanData?.email;
@@ -1459,9 +1482,9 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
         <Card className="p-8 text-center max-w-md shadow-lg rounded-2xl">
           <CardContent>
             <MapPin className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-slate-900 mb-2">No Results Found</h2>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Scan results unavailable</h2>
             <p className="text-slate-600 text-sm mb-6">
-              We couldn't find your scan results. Please run a new scan.
+              Please start a new scan. If you just completed one, try again in a moment.
             </p>
             <Button
               onClick={handleNewScan}
@@ -1767,9 +1790,13 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
     );
   }
 
-  const { business, scores, enrichedData, insightSummary } = scanData;
-  
-  const meoScore = Math.round(scores.meo || 0);
+  const business = scanData.business ?? {};
+  const scores = scanData.scores ?? {};
+  const { enrichedData, insightSummary } = scanData;
+
+  const meoRaw = scores.meo;
+  const meoScore =
+    meoRaw != null && typeof meoRaw === 'number' && Number.isFinite(meoRaw) ? Math.round(meoRaw) : null;
   // CRITICAL: GEO score is ONLY shown when geoReady (explain completed) OR limited presence
   const geo = scanData?.geo || null;
   let geoScore = isLimitedPresence 
@@ -1787,34 +1814,84 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
   } else if ((geoReady || isLimitedPresence) && (scores.overall != null || scores.final != null)) {
     finalScore = Math.round(scores.overall ?? scores.final);
   } else {
-    finalScore = meoScore;
+    finalScore = meoScore ?? null;
   }
   
   // Check if GEO category is resolved
   const isCategoryResolved = geo?.status === 'ok';
   
-  const percentile = scanData.percentile || (() => {
-    if (finalScore >= 90) return 95;
-    if (finalScore >= 80) return 85;
-    if (finalScore >= 70) return 60;
-    if (finalScore >= 60) return 40;
+  const percentile = scanData.percentile ?? (() => {
+    const fs = typeof finalScore === 'number' && Number.isFinite(finalScore) ? finalScore : 0;
+    if (fs >= 90) return 95;
+    if (fs >= 80) return 85;
+    if (fs >= 70) return 60;
+    if (fs >= 60) return 40;
     return 25;
   })();
   
-  const optimizationPercentage = finalScore;
+  const optimizationPercentage = typeof finalScore === 'number' ? finalScore : 0;
   const meoExplain = scanData?.meoBackendData?.meoExplain ?? scanData?.meoBackendData;
   const marketContext = meoExplain?.marketContext;
   const address = business?.address || business?.formattedAddress || '';
   const cityState = address.split(',').slice(1, 3).map((s) => s.trim()).filter(Boolean).join(', ') || scanData?.metadata?.city || '';
   const rating = meoExplain?.rating ?? business?.rating ?? null;
   const totalReviews = meoExplain?.totalReviews ?? business?.reviewCount ?? null;
-  const photoCount = meoExplain?.photoCount ?? 0;
-  const localAvgReviews = marketContext?.localAvgReviews ?? null;
-  const localAvgRating = marketContext?.localAvgRating ?? null;
-  const localAvgPhotos = marketContext?.localAvgPhotos ?? null;
-  const competitorCount = marketContext?.competitorCount ?? 0;
-  const reviewsPercentile = marketContext?.reviewsPercentile ?? percentile;
-  const photosPercentile = marketContext?.photosPercentile ?? 50;
+  // Photo count: try every shape the backend may use so the PHOTOS card is
+  // never artificially zeroed when Places actually returned photos.
+  const photoCount = (() => {
+    const candidates = [
+      meoExplain?.photoCount,
+      meoExplain?.photo_count,
+      scanData?.place?.photoCount,
+      scanData?.business?.photoCount,
+      Array.isArray(scanData?.place?.photos) ? scanData.place.photos.length : null,
+      Array.isArray(scanData?.business?.photos) ? scanData.business.photos.length : null,
+    ];
+    for (const v of candidates) {
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) return v;
+    }
+    return 0;
+  })();
+
+  // The MEO engine schema field is `competitorsAnalyzed` — older builds also
+  // emitted `competitorCount`. Read both to stay compatible.
+  const competitorCount = marketContext?.competitorsAnalyzed ?? marketContext?.competitorCount ?? 0;
+  // Only treat local averages as real when the backend actually had at least
+  // 3 competitors. Otherwise the engine zeroes them out (or older builds
+  // copied the business's own values, producing the bogus
+  // "577 reviews vs. local avg 577" line). Forcing nulls here makes the UI
+  // honestly fall back to "competitor benchmark unavailable" copy.
+  const hasCompetitorBenchmark = competitorCount >= 3;
+  const localAvgReviews = hasCompetitorBenchmark
+    ? (typeof marketContext?.localAvgReviews === 'number' && marketContext.localAvgReviews > 0
+        ? marketContext.localAvgReviews
+        : null)
+    : null;
+  const localAvgRating = hasCompetitorBenchmark
+    ? (typeof marketContext?.localAvgRating === 'number' && marketContext.localAvgRating > 0
+        ? marketContext.localAvgRating
+        : null)
+    : null;
+  const localAvgPhotos = hasCompetitorBenchmark
+    ? (typeof marketContext?.localAvgPhotos === 'number' && marketContext.localAvgPhotos > 0
+        ? marketContext.localAvgPhotos
+        : null)
+    : null;
+  const reviewsPercentile = hasCompetitorBenchmark
+    ? (marketContext?.reviewsPercentile ?? marketContext?.competitivePercentile?.reviews ?? percentile)
+    : percentile;
+  const photosPercentile = marketContext?.photosPercentile
+    ?? marketContext?.competitivePercentile?.photos
+    ?? 50;
+
+  const placesDebug = scanData?.debug?.placeDetails;
+  const backendPlacesNote =
+    typeof placesDebug?.placesDetailsErrorMessage === 'string' && placesDebug.placesDetailsErrorMessage.trim()
+      ? placesDebug.placesDetailsErrorMessage.trim()
+      : null;
+  const mapsDataIncomplete =
+    placesDebug && placesDebug.usedServerDetails === false && placesDebug.hasGeometry === false;
+  const scoresMissing = meoScore == null && geoScore == null;
 
   return (
     <motion.div
@@ -1844,6 +1921,32 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
       {isDemoMode && (
         <div className="bg-amber-50 border-b border-amber-200 py-2">
           <p className="text-center text-sm text-amber-800 font-medium">Demo mode — showing sample data. Run a real scan to see your business.</p>
+        </div>
+      )}
+      {!isDemoMode && (scoresMissing || backendPlacesNote || mapsDataIncomplete) && (
+        <div className="bg-amber-50 border-b border-amber-200 py-3 px-4">
+          <div className={`${containerClass} mx-auto space-y-1`}>
+            {scoresMissing ? (
+              <>
+                <p className="text-sm font-medium text-amber-900">Scan could not complete. Please try again.</p>
+                <p className="text-xs text-amber-800/90">
+                  Maps visibility (MEO) or AI visibility (GEO) scores were not returned. Run a new scan after a moment, or contact support if this continues.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-amber-900">Some scan data could not be loaded from Google Places.</p>
+                {backendPlacesNote && (
+                  <p className="text-xs text-amber-900/90 font-mono break-all">{backendPlacesNote}</p>
+                )}
+                {!backendPlacesNote && mapsDataIncomplete && (
+                  <p className="text-xs text-amber-800/90">
+                    Server-side place details did not return a full profile (no map location). Scores may be partial — check your Maps/Places API key and billing in production.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
       {(geoGenerating || geoFailed || jobIdMissingError) && !isDemoMode && (
@@ -1886,7 +1989,7 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
             transition={{ duration: 0.4 }}
           >
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 leading-tight tracking-tight">
-              {business.name}
+              {business?.name || 'Your business'}
             </h1>
             <p className="text-slate-600 text-sm mt-2 flex items-center gap-2">
               <MapPin className="w-4 h-4 shrink-0 text-slate-500" />
@@ -2025,6 +2128,8 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                             <><strong>{photoCount} photos</strong> vs. local avg <strong>{Math.round(localAvgPhotos)}</strong>. More photos improve Maps and AI discovery.</>
                           ) : totalReviews != null && localAvgReviews != null ? (
                             <><strong>{totalReviews} reviews</strong> vs. local avg <strong>{Math.round(localAvgReviews)}</strong>. Review volume drives visibility.</>
+                          ) : totalReviews != null ? (
+                            <><strong>{totalReviews} reviews</strong>. Local competitor average was unavailable for this scan, so we couldn't benchmark review volume.</>
                           ) : meoExplain?.optimizationTips?.[0] ? (
                             meoExplain.optimizationTips[0]
                           ) : (
@@ -2036,18 +2141,84 @@ Format as JSON with: strengths (array), weaknesses (array), recommendations (arr
                         <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Quick Visibility Wins</h3>
                         <ul className="space-y-2.5">
                           {(() => {
-                            const defaults = ['Add 20+ photos to your listing', 'Respond to reviews regularly', 'Add structured data to your website', 'Improve review volume'];
-                            const fromScan = (meoExplain?.optimizationTips?.slice(0, 2) || []).map(t => t.length > 60 ? t.slice(0, 60) + '…' : t);
-                            const combined = [...fromScan, ...defaults];
+                            // Build recommendations from real, observed signals.
+                            // Each entry is keyed by category so we can de-duplicate
+                            // ideas (e.g. an engine tip about photos and a default
+                            // photo recommendation should never both appear).
+                            const recs = [];
                             const seen = new Set();
-                            const items = combined.filter(t => {
-                              const key = t.toLowerCase().replace(/\s+/g, ' ').trim();
-                              if (seen.has(key)) return false;
+                            const push = (key, text) => {
+                              if (seen.has(key)) return;
+                              if (!text) return;
                               seen.add(key);
-                              return true;
-                            }).slice(0, 4);
-                            return items.map((text, i) => (
-                              <li key={i} className="flex items-start gap-3 text-sm text-slate-700">
+                              recs.push({ key, text });
+                            };
+
+                            const hasWebsiteSig = meoExplain?.hasWebsite ?? !!(business?.website || business?.websiteUri);
+                            const hasPhoneSig = meoExplain?.hasPhone ?? !!(business?.international_phone_number || business?.formatted_phone_number);
+                            const hasHoursSig = meoExplain?.hasHours ?? !!(business?.opening_hours);
+                            const ratingNum = typeof rating === 'number' ? rating : null;
+                            const reviewsNum = typeof totalReviews === 'number' ? totalReviews : null;
+                            const photoNum = typeof photoCount === 'number' ? photoCount : 0;
+
+                            if (photoNum < 10) {
+                              push('photos', 'Add 10–20 high-quality photos of your exterior, interior, team, and best products or services.');
+                            }
+                            if (ratingNum != null && ratingNum < 4.5) {
+                              push('reviews_rating', 'Improve your average rating by asking recent happy customers for reviews and resolving negative feedback.');
+                            }
+                            if (hasCompetitorBenchmark && reviewsNum != null && localAvgReviews != null && reviewsNum < localAvgReviews) {
+                              push('reviews_volume', 'Increase review volume to close the gap with nearby competitors.');
+                            } else if (reviewsNum != null && reviewsNum < 50) {
+                              push('reviews_volume', 'Build review volume — aim for 50+ recent reviews to strengthen credibility.');
+                            }
+                            if (!hasWebsiteSig) {
+                              push('website', 'Add or fix your website link on your Google Business Profile.');
+                            }
+                            if (!hasPhoneSig) {
+                              push('phone', 'Add a tracked phone number so customers can call directly from your profile.');
+                            }
+                            if (!hasHoursSig) {
+                              push('hours', 'Complete your business hours, including holiday hours.');
+                            }
+                            if (reviewsNum != null && reviewsNum >= 10) {
+                              push('review_response', 'Respond to recent reviews consistently, especially negative ones.');
+                            }
+                            if (!hasCompetitorBenchmark) {
+                              push('competitor_context', 'Strengthen profile details and photos so the listing competes well even when local benchmark data is limited.');
+                            }
+
+                            // Pull additional engine tips, but only those that map
+                            // to categories we haven't already covered. This is
+                            // what removes the "Add 20+ photos" + "Add more
+                            // high-quality photos" duplicate.
+                            const categorizeTip = (t) => {
+                              const s = (t || '').toLowerCase();
+                              if (s.includes('photo') || s.includes('image') || s.includes('visual')) return 'photos';
+                              if (s.includes('respond') || s.includes('reply') || s.includes('response')) return 'review_response';
+                              if (s.includes('website')) return 'website';
+                              if (s.includes('phone')) return 'phone';
+                              if (s.includes('hours')) return 'hours';
+                              if (s.includes('description') || s.includes('category')) return 'category';
+                              if (s.includes('rating')) return 'reviews_rating';
+                              if (s.includes('review')) return 'reviews_volume';
+                              return 'other_' + s.slice(0, 24);
+                            };
+                            for (const tip of (meoExplain?.optimizationTips || [])) {
+                              if (recs.length >= 5) break;
+                              const trimmed = (tip || '').trim();
+                              if (!trimmed) continue;
+                              const key = categorizeTip(trimmed);
+                              const display = trimmed.length > 100 ? trimmed.slice(0, 100) + '…' : trimmed;
+                              push(key, display);
+                            }
+
+                            const items = recs.slice(0, 5);
+                            if (items.length === 0) {
+                              items.push({ key: 'fallback', text: 'Keep your Google Business Profile complete and active to maintain visibility.' });
+                            }
+                            return items.map(({ key, text }) => (
+                              <li key={key} className="flex items-start gap-3 text-sm text-slate-700">
                                 <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
                                 <span>{text}</span>
                               </li>

@@ -1,14 +1,14 @@
 /**
  * Google Places API wrappers for cron jobs.
- * Uses GOOGLE_MAPS_API_KEY or GOOGLE_PLACES_API_KEY.
+ * Primary: GOOGLE_PLACES_API_KEY (server-side key). Fallback: GOOGLE_MAPS_API_KEY.
  */
 
-const API_KEY = process.env.GOOGLE_MAPS_API_KEY || process.env.GOOGLE_PLACES_API_KEY
+const API_KEY = process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_MAPS_API_KEY
 const BASE_URL = 'https://maps.googleapis.com/maps/api/place'
 const DELAY_MS = 150 // Backoff between calls
 
 function getApiKey(): string {
-  if (!API_KEY) throw new Error('GOOGLE_MAPS_API_KEY or GOOGLE_PLACES_API_KEY required')
+  if (!API_KEY) throw new Error('GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY required')
   return API_KEY
 }
 

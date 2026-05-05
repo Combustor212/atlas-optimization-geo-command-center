@@ -13,6 +13,7 @@ import {
   isLocalLeader as checkIsLocalLeader,
   isPerfectProfile as checkIsPerfectProfile,
   calculateDominanceType,
+  type CompetitorAttemptDebug,
 } from './competitiveAnalysis'
 
 // ============================================================================
@@ -430,7 +431,7 @@ export async function calculateMEOScore(
 
   const scoringWarnings: string[] = []
 
-  const marketContextOrError = await analyzeCompetitivePosition(
+  const competitorResult = await analyzeCompetitivePosition(
     businessName,
     rating,
     totalReviews,
@@ -445,25 +446,60 @@ export async function calculateMEOScore(
 
   let marketContext: MarketContext
   let competitiveDataAvailable: boolean
+  let competitorAttempts: CompetitorAttemptDebug[] = []
+  let competitorsList: Array<{
+    place_id: string
+    name: string
+    rating: number
+    reviews: number
+    types: string[]
+    formatted_address?: string
+  }> = []
+  let competitorReasonIfUnavailable: string | undefined
+  let competitorApiUnreachable = false
 
-  if ('error' in marketContextOrError) {
-    // Competitive data unavailable — score without it rather than blocking entirely.
-    // competitiveScore = 0 is honest: we cannot establish market position.
+  if ('error' in competitorResult) {
+    // Hard precondition error (missing place_id / lat / lng).
     scoringWarnings.push(
-      `Competitive context unavailable: ${marketContextOrError.reason}. Competitive component scored as 0.`
+      'Local competitor benchmark was limited, so the competitive comparison was not included.'
     )
     marketContext = {
-      localAvgRating: rating,
-      localAvgReviews: totalReviews,
+      localAvgRating: 0,
+      localAvgReviews: 0,
       localAvgPhotos: 0,
       competitorsAnalyzed: 0,
       competitivePercentile: { rating: 0, reviews: 0, photos: 0 },
       marketPosition: 'Unknown — insufficient competitor data',
     }
     competitiveDataAvailable = false
-  } else {
-    marketContext = marketContextOrError
+    competitorAttempts = competitorResult.attempts ?? []
+    competitorReasonIfUnavailable = competitorResult.reason
+  } else if (competitorResult.marketContext) {
+    marketContext = competitorResult.marketContext
     competitiveDataAvailable = true
+    competitorAttempts = competitorResult.attempts
+    competitorsList = competitorResult.competitors
+  } else {
+    // < 3 valid competitors after every strategy. Score without competitive
+    // context (competitiveScore = 0). Do NOT copy the business's own
+    // rating/reviews into the local averages — that's the bug that produced
+    // "577 reviews vs. local avg 577".
+    scoringWarnings.push(
+      'Local competitor benchmark was limited, so the competitive comparison was not included.'
+    )
+    marketContext = {
+      localAvgRating: 0,
+      localAvgReviews: 0,
+      localAvgPhotos: 0,
+      competitorsAnalyzed: competitorResult.competitors.length, // 0, 1, or 2
+      competitivePercentile: { rating: 0, reviews: 0, photos: 0 },
+      marketPosition: 'Unknown — insufficient competitor data',
+    }
+    competitiveDataAvailable = false
+    competitorAttempts = competitorResult.attempts
+    competitorsList = competitorResult.competitors
+    competitorReasonIfUnavailable = competitorResult.reasonIfUnavailable
+    competitorApiUnreachable = competitorResult.apiUnreachable
   }
 
   const isLocalLeader = checkIsLocalLeader(rating, totalReviews, marketContext.marketPosition)
@@ -844,9 +880,11 @@ export async function calculateMEOScore(
 
   const debugStamp = `BACKEND_LIVE_${new Date().toISOString()}`
 
-  if (!competitiveDataAvailable) {
-    scoringWarnings.push(`reviewResponseRate not available from Google Places API — engagement component scored as 0`)
-  }
+  // Note: reviewResponseRate is intentionally NOT surfaced as a scoring warning.
+  // Google Places does not expose review-response data, so its absence is
+  // expected, not exceptional. Surfacing it as a warning was confusing to
+  // business owners and read like a broken scan. Internal logs still carry
+  // the engagement breakdown via scoringBreakdown.engagement.
   if (reviewReliabilityCapApplied && reviewReliabilityCap !== null) {
     scoringWarnings.push(
       `Review reliability cap applied (${totalReviews} reviews → max ${reviewReliabilityCap}). Reach ${getNextReviewThreshold(totalReviews)}+ reviews to unlock higher scores.`
@@ -901,6 +939,20 @@ export async function calculateMEOScore(
       debugStamp,
       scoringWarnings: scoringWarnings.length > 0 ? scoringWarnings : undefined,
       competitiveDataAvailable,
+      competitorDebug: {
+        attempts: competitorAttempts,
+        finalCount: competitorsList.length || marketContext.competitorsAnalyzed || 0,
+        apiUnreachable: competitorApiUnreachable,
+        reasonIfUnavailable: competitorReasonIfUnavailable,
+        competitors: competitorsList.map((c) => ({
+          place_id: c.place_id,
+          name: c.name,
+          rating: c.rating,
+          user_ratings_total: c.reviews,
+          types: c.types,
+          formatted_address: c.formatted_address,
+        })),
+      },
     },
   }
 }

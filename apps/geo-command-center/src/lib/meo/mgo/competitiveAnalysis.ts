@@ -1,5 +1,16 @@
 /**
  * Competitive Analysis - MGO backend compatible
+ *
+ * The competitor fetch tries multiple search strategies in order before
+ * giving up:
+ *   1. Nearby Search filtered by the selected business's primary type
+ *   2. Nearby Search with NO type filter (broader)
+ *   3. Nearby Search with a broader fallback category derived from types
+ *   4. Text Search using "<category> near <city/address>"
+ *
+ * Filtering is intentionally lenient: a result is kept as a valid
+ * competitor when it has a `place_id` AND (rating OR user_ratings_total)
+ * AND it is not the selected business and not a corporate-office shell.
  */
 import type { MarketContext, CompetitivePercentile } from './meoSchema'
 
@@ -17,12 +28,201 @@ interface CompetitorData {
   reviews: number
   photos: number
   types: string[]
+  formatted_address?: string
+}
+
+export interface CompetitorAttemptDebug {
+  strategy: string
+  rawCount: number
+  afterFilterCount: number
+  /** Optional human-readable note (e.g. "type=meal_takeaway", HTTP error). */
+  note?: string
 }
 
 interface CompetitiveAnalysisError {
   error: string
   reason: string
   details?: unknown
+  attempts?: CompetitorAttemptDebug[]
+}
+
+type RawNearbyPlace = {
+  place_id?: string
+  rating?: number
+  user_ratings_total?: number
+  types?: string[]
+  name?: string
+  photos?: unknown[]
+  formatted_address?: string
+  vicinity?: string
+}
+
+async function nearbySearch(
+  targetLat: number,
+  targetLng: number,
+  radius: number,
+  type: string | null
+): Promise<{ results: RawNearbyPlace[]; status: string } | null> {
+  const url = new URL(`${PLACES_API_BASE}/nearbysearch/json`)
+  url.searchParams.set('location', `${targetLat},${targetLng}`)
+  url.searchParams.set('radius', radius.toString())
+  if (type) url.searchParams.set('type', type)
+  url.searchParams.set('key', API_KEY)
+
+  try {
+    const response = await fetch(url.toString())
+    if (!response.ok) return null
+    const data = (await response.json()) as { status: string; results?: unknown[] }
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.warn(`[Competitors] nearbySearch type=${type ?? '<none>'} status=${data.status}`)
+      return null
+    }
+    return { results: (data.results || []) as RawNearbyPlace[], status: data.status }
+  } catch (err) {
+    console.warn('[Competitors] nearbySearch threw:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+async function textSearch(query: string): Promise<{ results: RawNearbyPlace[]; status: string } | null> {
+  const url = new URL(`${PLACES_API_BASE}/textsearch/json`)
+  url.searchParams.set('query', query)
+  url.searchParams.set('key', API_KEY)
+
+  try {
+    const response = await fetch(url.toString())
+    if (!response.ok) return null
+    const data = (await response.json()) as { status: string; results?: unknown[] }
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.warn(`[Competitors] textSearch query="${query}" status=${data.status}`)
+      return null
+    }
+    return { results: (data.results || []) as RawNearbyPlace[], status: data.status }
+  } catch (err) {
+    console.warn('[Competitors] textSearch threw:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/**
+ * Filter raw Places results into a valid competitor set.
+ *
+ * Lenient by design — rejecting based on missing `rating` AND `user_ratings_total`
+ * was the previous source of "0 competitors found" reports. A result is now
+ * kept as long as it has either signal (so it carries SOME information about
+ * its market position).
+ */
+function filterValidCompetitors(
+  places: RawNearbyPlace[],
+  targetPlaceId: string
+): CompetitorData[] {
+  return places
+    .filter((p) => {
+      if (!p.place_id || p.place_id === targetPlaceId) return false
+      const ratingOk = typeof p.rating === 'number' && isFinite(p.rating) && p.rating > 0
+      const reviewsOk =
+        typeof p.user_ratings_total === 'number' &&
+        isFinite(p.user_ratings_total) &&
+        p.user_ratings_total > 0
+      // Require AT LEAST ONE of the two — this is the actual competitive signal.
+      if (!ratingOk && !reviewsOk) return false
+      const types = (p.types || []) as string[]
+      const name = (p.name || '').toLowerCase()
+      if (
+        types.includes('corporate_office') ||
+        types.includes('headquarters') ||
+        name.includes('corporate office') ||
+        name.includes('national office') ||
+        name.includes('administrative office')
+      ) return false
+      if (types.includes('holding_company')) return false
+      return true
+    })
+    .map((p) => ({
+      place_id: p.place_id as string,
+      name: p.name || 'Unknown',
+      // Use 0 only when the field is genuinely absent so the engine sees the right signal.
+      rating: typeof p.rating === 'number' && isFinite(p.rating) ? p.rating : 0,
+      reviews:
+        typeof p.user_ratings_total === 'number' && isFinite(p.user_ratings_total)
+          ? p.user_ratings_total
+          : 0,
+      // Nearby Search returns at most 1 photo reference — useless as a count.
+      photos: 0,
+      types: (p.types || []) as string[],
+      formatted_address: p.formatted_address || p.vicinity,
+    }))
+}
+
+/**
+ * Pick a broader fallback type when the primary type is too narrow.
+ *
+ * For example a McDonald's may have primary type `meal_takeaway`, but most
+ * useful competitor signal lives under `restaurant` or `food`. This is only
+ * used after the primary-type pass + the no-type pass have both failed to
+ * yield ≥3 valid competitors.
+ */
+function pickBroadFallbackType(types: string[] | undefined): string | null {
+  if (!types?.length) return null
+  // Prefer the most general food/retail buckets if present.
+  const buckets = [
+    'restaurant', 'food', 'cafe', 'bakery', 'bar', 'meal_delivery',
+    'store', 'shopping_mall',
+    'health', 'doctor', 'dentist',
+    'lawyer', 'real_estate_agency', 'lodging', 'gym',
+    'beauty_salon', 'hair_care', 'spa',
+    'car_dealer', 'car_repair',
+  ]
+  for (const b of buckets) if (types.includes(b)) return b
+  // Otherwise: fall back to the second type if it's broader than the first.
+  return types.length >= 2 ? types[1] : null
+}
+
+function categoryQueryForTextSearch(types: string[] | undefined): string {
+  if (!types?.length) return 'business'
+  const human: Record<string, string> = {
+    meal_takeaway: 'fast food restaurant',
+    meal_delivery: 'restaurant',
+    fast_food_restaurant: 'fast food restaurant',
+    hamburger_restaurant: 'burger restaurant',
+    pizza_restaurant: 'pizza restaurant',
+    coffee_shop: 'coffee shop',
+    cafe: 'cafe',
+    bakery: 'bakery',
+    bar: 'bar',
+    restaurant: 'restaurant',
+    food: 'restaurant',
+    store: 'store',
+    car_dealer: 'car dealership',
+    car_repair: 'auto repair shop',
+    gym: 'gym',
+    beauty_salon: 'beauty salon',
+    hair_care: 'hair salon',
+    spa: 'spa',
+    dentist: 'dentist',
+    doctor: 'medical clinic',
+    lawyer: 'law firm',
+    real_estate_agency: 'real estate agency',
+    lodging: 'hotel',
+  }
+  for (const t of types) {
+    const label = human[t]
+    if (label) return label
+  }
+  // Last resort: humanize whatever type we have.
+  const t = types[0].replace(/_/g, ' ')
+  return t || 'business'
+}
+
+interface FetchOutcome {
+  competitors: CompetitorData[]
+  attempts: CompetitorAttemptDebug[]
+  /**
+   * `true` if every attempt returned `null` (network/HTTP/REQUEST_DENIED) —
+   * a strong signal that the server-side Google Places API key is restricted
+   * or otherwise unable to make outbound calls.
+   */
+  apiUnreachable: boolean
 }
 
 async function fetchRealCompetitors(
@@ -30,62 +230,99 @@ async function fetchRealCompetitors(
   targetLng: number,
   targetPlaceId: string,
   targetTypes: string[] | undefined,
+  locationLabel: string,
   radius = COMPETITOR_RADIUS_METERS
-): Promise<CompetitorData[] | null> {
-  if (!API_KEY) return null
+): Promise<FetchOutcome> {
+  const attempts: CompetitorAttemptDebug[] = []
+  const merged = new Map<string, RawNearbyPlace>()
+  let anyApiSuccess = false
 
-  try {
-    const primaryType = targetTypes?.length ? targetTypes[0] : null
-    const nearbyUrl = new URL(`${PLACES_API_BASE}/nearbysearch/json`)
-    nearbyUrl.searchParams.set('location', `${targetLat},${targetLng}`)
-    nearbyUrl.searchParams.set('radius', radius.toString())
-    if (primaryType) nearbyUrl.searchParams.set('type', primaryType)
-    nearbyUrl.searchParams.set('key', API_KEY)
+  if (!API_KEY) {
+    return { competitors: [], attempts, apiUnreachable: true }
+  }
 
-    const response = await fetch(nearbyUrl.toString())
-    if (!response.ok) return null
-
-    const data = (await response.json()) as { status: string; results?: unknown[]; error_message?: string }
-    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') return null
-
-    let nearbyPlaces = data.results || []
-
-    if (nearbyPlaces.length === 0 && primaryType) {
-      const fallbackUrl = new URL(`${PLACES_API_BASE}/nearbysearch/json`)
-      fallbackUrl.searchParams.set('location', `${targetLat},${targetLng}`)
-      fallbackUrl.searchParams.set('radius', radius.toString())
-      fallbackUrl.searchParams.set('key', API_KEY)
-      const fallbackResponse = await fetch(fallbackUrl.toString())
-      if (fallbackResponse.ok) {
-        const fallbackData = (await fallbackResponse.json()) as { status: string; results?: unknown[] }
-        if (fallbackData.status === 'OK' || fallbackData.status === 'ZERO_RESULTS') {
-          nearbyPlaces = fallbackData.results || []
-        }
-      }
+  const recordAttempt = async (
+    strategy: string,
+    note: string | undefined,
+    runner: () => Promise<{ results: RawNearbyPlace[]; status: string } | null>
+  ): Promise<RawNearbyPlace[]> => {
+    const result = await runner()
+    if (result === null) {
+      attempts.push({ strategy, rawCount: 0, afterFilterCount: 0, note: note ? `${note} → request failed` : 'request failed' })
+      return []
     }
+    anyApiSuccess = true
+    const filtered = filterValidCompetitors(result.results, targetPlaceId)
+    attempts.push({
+      strategy,
+      rawCount: result.results.length,
+      afterFilterCount: filtered.length,
+      note,
+    })
+    for (const p of result.results) if (p.place_id) merged.set(p.place_id, p)
+    return result.results
+  }
 
-    const competitors: CompetitorData[] = nearbyPlaces
-      .filter((p: { place_id?: string; rating?: number; user_ratings_total?: number; types?: string[]; name?: string }) => {
-        if (!p.place_id || p.place_id === targetPlaceId) return false
-        if (typeof p.rating !== 'number' || typeof p.user_ratings_total !== 'number') return false
-        const types = (p.types || []) as string[]
-        const name = (p.name || '').toLowerCase()
-        if (types.includes('corporate_office') || types.includes('headquarters') || name.includes('headquarters') || name.includes('corporate') || name.includes('national office')) return false
-        if (types.includes('holding_company') || name.includes('holdings')) return false
-        return true
-      })
-      .map((p: { place_id: string; name?: string; rating: number; user_ratings_total: number; photos?: unknown[]; types?: string[] }) => ({
-        place_id: p.place_id,
-        name: p.name || 'Unknown',
-        rating: p.rating,
-        reviews: p.user_ratings_total,
-        photos: 0, // Nearby Search only returns 1 photo reference per place regardless of actual count — not usable
-        types: p.types || [],
-      }))
+  // ── Pass 1: Nearby Search filtered by the primary type ────────────────────
+  const primaryType = targetTypes?.length ? targetTypes[0] : null
+  if (primaryType) {
+    await recordAttempt(
+      'nearby-primary-type',
+      `type=${primaryType}`,
+      () => nearbySearch(targetLat, targetLng, radius, primaryType)
+    )
+  } else {
+    attempts.push({ strategy: 'nearby-primary-type', rawCount: 0, afterFilterCount: 0, note: 'no primary type on selected place' })
+  }
 
-    return competitors
-  } catch {
-    return null
+  let competitors = filterValidCompetitors(Array.from(merged.values()), targetPlaceId)
+  if (competitors.length >= 3) {
+    return { competitors, attempts, apiUnreachable: false }
+  }
+
+  // ── Pass 2: Nearby Search with NO type filter (broader) ───────────────────
+  await recordAttempt(
+    'nearby-no-type',
+    'type=<none>',
+    () => nearbySearch(targetLat, targetLng, radius, null)
+  )
+  competitors = filterValidCompetitors(Array.from(merged.values()), targetPlaceId)
+  if (competitors.length >= 3) {
+    return { competitors, attempts, apiUnreachable: false }
+  }
+
+  // ── Pass 3: Nearby Search using a broader bucket type ─────────────────────
+  const broadType = pickBroadFallbackType(targetTypes)
+  if (broadType && broadType !== primaryType) {
+    await recordAttempt(
+      'nearby-broad-type',
+      `type=${broadType}`,
+      () => nearbySearch(targetLat, targetLng, radius, broadType)
+    )
+    competitors = filterValidCompetitors(Array.from(merged.values()), targetPlaceId)
+    if (competitors.length >= 3) {
+      return { competitors, attempts, apiUnreachable: false }
+    }
+  }
+
+  // ── Pass 4: Text Search "<category> near <location>" ──────────────────────
+  if (locationLabel) {
+    const category = categoryQueryForTextSearch(targetTypes)
+    const query = `${category} near ${locationLabel}`.trim()
+    await recordAttempt(
+      'text-search-category-location',
+      `query="${query}"`,
+      () => textSearch(query)
+    )
+    competitors = filterValidCompetitors(Array.from(merged.values()), targetPlaceId)
+  } else {
+    attempts.push({ strategy: 'text-search-category-location', rawCount: 0, afterFilterCount: 0, note: 'no location label available' })
+  }
+
+  return {
+    competitors,
+    attempts,
+    apiUnreachable: !anyApiSuccess,
   }
 }
 
@@ -106,6 +343,14 @@ function getMarketPositionLabel(avgPercentile: number): string {
   return 'Bottom 20% - Needs Improvement'
 }
 
+export interface AnalyzeCompetitivePositionResult {
+  marketContext: MarketContext | null
+  competitors: CompetitorData[]
+  attempts: CompetitorAttemptDebug[]
+  apiUnreachable: boolean
+  reasonIfUnavailable?: string
+}
+
 export async function analyzeCompetitivePosition(
   _businessName: string,
   rating: number,
@@ -117,37 +362,65 @@ export async function analyzeCompetitivePosition(
   targetLat: number | undefined,
   targetLng: number | undefined,
   targetTypes: string[] | undefined
-): Promise<MarketContext | CompetitiveAnalysisError> {
+): Promise<AnalyzeCompetitivePositionResult | CompetitiveAnalysisError> {
   if (!targetPlaceId || typeof targetLat !== 'number' || typeof targetLng !== 'number') {
-    return { error: 'MEO competitive analysis blocked', reason: 'Missing target placeId or lat/lng' }
-  }
-
-  const competitors = await fetchRealCompetitors(targetLat, targetLng, targetPlaceId, targetTypes, COMPETITOR_RADIUS_METERS)
-
-  if (!competitors || competitors.length < 3) {
     return {
       error: 'MEO competitive analysis blocked',
-      reason: `Found only ${competitors?.length || 0} competitors (minimum 3 required)`,
-      details: { found: competitors?.length || 0, required: 3, location, targetPlaceId },
+      reason: 'Missing target placeId or lat/lng',
+      attempts: [],
+    }
+  }
+
+  const { competitors, attempts, apiUnreachable } = await fetchRealCompetitors(
+    targetLat,
+    targetLng,
+    targetPlaceId,
+    targetTypes,
+    location,
+    COMPETITOR_RADIUS_METERS
+  )
+
+  console.log(
+    '[Competitors] attempts:',
+    attempts.map((a) => `${a.strategy}=${a.afterFilterCount}/${a.rawCount}`).join(' | '),
+    `final=${competitors.length}`,
+    apiUnreachable ? '(API unreachable)' : ''
+  )
+
+  if (competitors.length < 3) {
+    const reason = apiUnreachable
+      ? 'Google Places API was unreachable from the server (likely API key restriction).'
+      : `Only ${competitors.length} valid competitors found across all strategies (need ≥ 3).`
+    return {
+      marketContext: null,
+      competitors,
+      attempts,
+      apiUnreachable,
+      reasonIfUnavailable: reason,
     }
   }
 
   const localAvgRating = competitors.reduce((s, c) => s + c.rating, 0) / competitors.length
   const localAvgReviews = competitors.reduce((s, c) => s + c.reviews, 0) / competitors.length
-  const localAvgPhotos = 0 // Nearby Search photo data is unreliable (always 1) — not displayed
+  const localAvgPhotos = 0 // Nearby Search photo data is unreliable (always ≤1) — not displayed.
 
   const ratingPercentile = calculatePercentile(rating, competitors.map((c) => c.rating))
   const reviewsPercentile = calculatePercentile(reviews, competitors.map((c) => c.reviews))
-  const photosPercentile = 50 // Not calculated — competitor photo counts from Nearby Search are not reliable
-  const avgPercentile = (ratingPercentile + reviewsPercentile) / 2 // Only use reliable signals
+  const photosPercentile = 50
+  const avgPercentile = (ratingPercentile + reviewsPercentile) / 2
 
   return {
-    localAvgRating: Math.round(localAvgRating * 10) / 10,
-    localAvgReviews: Math.round(localAvgReviews),
-    localAvgPhotos: Math.round(localAvgPhotos),
-    competitorsAnalyzed: competitors.length,
-    competitivePercentile: { rating: ratingPercentile, reviews: reviewsPercentile, photos: photosPercentile },
-    marketPosition: getMarketPositionLabel(avgPercentile),
+    marketContext: {
+      localAvgRating: Math.round(localAvgRating * 10) / 10,
+      localAvgReviews: Math.round(localAvgReviews),
+      localAvgPhotos: Math.round(localAvgPhotos),
+      competitorsAnalyzed: competitors.length,
+      competitivePercentile: { rating: ratingPercentile, reviews: reviewsPercentile, photos: photosPercentile },
+      marketPosition: getMarketPositionLabel(avgPercentile),
+    },
+    competitors,
+    attempts,
+    apiUnreachable: false,
   }
 }
 

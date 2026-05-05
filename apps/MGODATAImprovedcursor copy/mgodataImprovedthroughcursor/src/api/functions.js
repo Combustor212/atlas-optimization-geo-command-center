@@ -316,6 +316,7 @@ async function processScan(placeDetails, { business_name, city, state, location,
         geoComponentBreakdown: scanResult?.geoComponentBreakdown ?? null,
         percentile: percentileData.percentile,
         percentileText: percentileData.text,
+        debug: scanResult?.debug ?? null,
         optimizationBar: {
           meo: meoScore,
           seo: seoScore,

@@ -195,13 +195,24 @@ async function findPlaceFromText(query: string): Promise<string | null> {
   }
 }
 
-async function getPlaceDetails(placeId: string): Promise<Record<string, unknown> | null> {
+/** Result of Places Details — Google `status` / `error_message` for debug only (no secrets). */
+type PlaceDetailsFetchResult = {
+  place: Record<string, unknown> | null
+  placesDetailsStatus?: string
+  placesDetailsErrorMessage?: string
+}
+
+async function getPlaceDetails(placeId: string): Promise<PlaceDetailsFetchResult> {
   if (!API_KEY) {
     console.warn('[MEO Scan] No Google API key — cannot fetch place details')
-    return null
+    return { place: null, placesDetailsStatus: 'NO_API_KEY' }
+  }
+  const id = typeof placeId === 'string' ? placeId.trim() : ''
+  if (!id) {
+    return { place: null, placesDetailsStatus: 'MISSING_PLACE_ID' }
   }
   const url = new URL(`${PLACES_BASE}/details/json`)
-  url.searchParams.set('place_id', placeId)
+  url.searchParams.set('place_id', id)
   url.searchParams.set('key', API_KEY)
   // geometry is REQUIRED for competitive MEO scoring (lat/lng for nearbysearch)
   url.searchParams.set(
@@ -214,19 +225,51 @@ async function getPlaceDetails(placeId: string): Promise<Record<string, unknown>
     const res = await fetchWithTimeout(url.toString(), 8000)
     if (!res.ok) {
       console.error('[MEO Scan] getPlaceDetails HTTP error:', res.status)
-      return null
+      return { place: null, placesDetailsStatus: `HTTP_${res.status}` }
     }
     const data = await res.json()
     if (data.status !== 'OK') {
       console.warn('[MEO Scan] getPlaceDetails status:', data.status, data.error_message)
-      return null
+      return {
+        place: null,
+        placesDetailsStatus: String(data.status ?? 'UNKNOWN'),
+        placesDetailsErrorMessage:
+          typeof data.error_message === 'string' ? data.error_message : undefined,
+      }
     }
     console.log('[MEO Scan] Place details fetched for:', data.result?.name)
-    return data.result
+    return { place: data.result as Record<string, unknown>, placesDetailsStatus: 'OK' }
   } catch (err) {
     console.error('[MEO Scan] getPlaceDetails failed:', err)
-    return null
+    return { place: null, placesDetailsStatus: 'FETCH_EXCEPTION' }
   }
+}
+
+// ─── Photo count normalization ─────────────────────────────────────────────
+
+/**
+ * Robust photo count extraction. Handles every shape we may receive:
+ *  - Legacy Places: { photos: [{ photo_reference }, ...] }
+ *  - New Places:    { photos: [...] }
+ *  - Pre-normalized: { photoCount } / { photo_count }
+ *  - Wrapped:       { result: { photos: [...] } }
+ *
+ * Returns 0 only when there is genuinely no photo data anywhere.
+ *
+ * Note: Google Places Details typically returns at most 10 photos in the
+ * `photos` array, even when the GBP has many more. This is "photos available
+ * from Places" — not necessarily the full GBP photo library. We expose what
+ * the API gives us honestly without inflating it.
+ */
+function getPhotoCount(place: unknown): number {
+  if (!place || typeof place !== 'object') return 0
+  const p = place as Record<string, unknown>
+  if (typeof p.photoCount === 'number' && isFinite(p.photoCount)) return p.photoCount
+  if (typeof p.photo_count === 'number' && isFinite(p.photo_count)) return p.photo_count
+  if (Array.isArray(p.photos)) return p.photos.length
+  const result = p.result as Record<string, unknown> | undefined
+  if (result && Array.isArray(result.photos)) return result.photos.length
+  return 0
 }
 
 // ─── Place shape adapter ───────────────────────────────────────────────────
@@ -360,7 +403,9 @@ export async function POST(req: NextRequest) {
 
     // ── 2. Fetch full place details (geometry required for competitive MEO) ─
     const placeDetailStart = Date.now()
-    let place = await getPlaceDetails(placeId)
+    const placeDetailsFetch = await getPlaceDetails(placeId)
+    let place = placeDetailsFetch.place
+    let usedServerDetails = !!place
     timings.placeDetail = Date.now() - placeDetailStart
 
     if (!place) {
@@ -369,6 +414,7 @@ export async function POST(req: NextRequest) {
       if (clientPlaceData && clientPlaceData.name) {
         console.warn('[MEO Scan] getPlaceDetails failed — using client place_data for lead capture')
         place = clientPlaceData
+        usedServerDetails = false
       } else if (businessName) {
         // Build minimal place so lead capture can still run
         console.warn('[MEO Scan] getPlaceDetails failed — building minimal place from request body')
@@ -377,6 +423,7 @@ export async function POST(req: NextRequest) {
           name: businessName,
           formatted_address: [body.address, body.city, body.state, body.country].filter(Boolean).join(', ') || undefined,
         }
+        usedServerDetails = false
       } else {
         return NextResponse.json(
           { error: 'Place details not found', details: { place_id: placeId } },
@@ -386,8 +433,35 @@ export async function POST(req: NextRequest) {
     }
 
     const locationStr = location.trim() || (place.formatted_address as string) || ''
-    const clientPhotoCount = typeof body.photoCount === 'number' ? body.photoCount : null
-    const placePhotoCount = clientPhotoCount ?? (place.photos as unknown[] | undefined)?.length ?? 0
+    const clientPhotoCount = typeof body.photoCount === 'number' && isFinite(body.photoCount as number)
+      ? (body.photoCount as number)
+      : null
+    // Normalize across every shape Places may return (array, count, wrapped result).
+    // Prefer the client-supplied count when present, otherwise use the highest reliable
+    // count we can find from the Details response or the raw client place_data.
+    // Note: Places Details caps `photos` at 10 items even when a GBP has more.
+    const placePhotoCount =
+      clientPhotoCount ??
+      Math.max(getPhotoCount(place), getPhotoCount(clientPlaceData))
+
+    // Capture which surface this scan was actually built from. Surfaced in the
+    // response `debug` object so a developer can verify in the Network tab
+    // whether server-side Places worked.
+    const placeDetailsDebug = {
+      usedServerDetails,
+      placesDetailsStatus: placeDetailsFetch.placesDetailsStatus,
+      placesDetailsErrorMessage: placeDetailsFetch.placesDetailsErrorMessage,
+      placeIdResolved: !!place.place_id,
+      hasPhotos: getPhotoCount(place) > 0 || getPhotoCount(clientPlaceData) > 0,
+      photoCount: placePhotoCount,
+      hasGeometry: !!(place.geometry as { location?: { lat: number; lng: number } } | undefined)?.location,
+      hasRating: typeof place.rating === 'number',
+      hasReviewCount: typeof place.user_ratings_total === 'number',
+      clientPhotoCountProvided: clientPhotoCount,
+      placeDetailsPhotoCount: getPhotoCount(place),
+      clientPlaceDataPhotoCount: getPhotoCount(clientPlaceData),
+    }
+    console.log('[MEO Scan] placeDetails debug:', placeDetailsDebug)
 
     // ── 3. MEO Scoring ────────────────────────────────────────────────────
     const meoStart = Date.now()
@@ -559,9 +633,16 @@ export async function POST(req: NextRequest) {
     // ── 8. Build consistent meoBody ───────────────────────────────────────
     // When the full engine ran: meoExplain has rating/totalReviews/photoCount/marketContext.
     // When engine hard-errored: hydrate from raw place so frontend data boxes show real values.
-    // Always override photoCount with the client-provided value if available (beats Places API 10-cap).
+    // photoCount: client-supplied beats Places (which is capped at 10), then engine count,
+    // then the normalized count we computed above. This guarantees the report's PHOTOS card
+    // never shows 0 when Places actually returned photos.
+    const reconciledPhotoCount =
+      clientPhotoCount ??
+      (typeof meoExplain?.photoCount === 'number' && meoExplain.photoCount > 0
+        ? meoExplain.photoCount
+        : placePhotoCount)
     const meoBody = meoExplain
-      ? { ...meoExplain, photoCount: clientPhotoCount ?? meoExplain.photoCount }
+      ? { ...meoExplain, photoCount: reconciledPhotoCount }
       : {
           rating: typeof place.rating === 'number' ? place.rating : null,
           totalReviews: typeof place.user_ratings_total === 'number' ? place.user_ratings_total : null,
@@ -607,7 +688,7 @@ export async function POST(req: NextRequest) {
       user_ratings_total: place.user_ratings_total,
       opening_hours: place.opening_hours,
       types: place.types,
-      photoCount: placePhotoCount,
+      photoCount: reconciledPhotoCount,
     }
 
     // ── 9. Lead capture — non-blocking, never breaks scan ─────────────────
@@ -740,13 +821,44 @@ export async function POST(req: NextRequest) {
     if (meoError) partialErrors.meo = meoError
     if (geoError) partialErrors.geo = geoError
 
-    // Collect all scoring warnings from MEO engine
+    // Collect all scoring warnings from MEO engine and translate any internal
+    // technical messages into user-friendly notes. Detailed/raw messages still
+    // get logged on the server and are available in `meta.partialErrors` for
+    // debugging — what we emit here is what business owners see.
+    const friendlyEngineWarnings = (Array.isArray(meoExplain?.scoringWarnings)
+      ? meoExplain!.scoringWarnings!
+      : []
+    ).map((w) => {
+      // Older engine builds may still emit these technical strings — translate
+      // them so the user-facing report stays understandable.
+      if (/Found only \d+ competitors/i.test(w) || /Competitive context unavailable/i.test(w)) {
+        return 'Local competitor benchmark was limited, so the competitive comparison was not included.'
+      }
+      if (/reviewResponseRate/i.test(w)) {
+        return 'Review response data was not available from Google Places, so response engagement was not scored.'
+      }
+      return w
+    })
+    const seen = new Set<string>()
     const allScoringWarnings: string[] = [
-      ...(Array.isArray(meoExplain?.scoringWarnings) ? meoExplain!.scoringWarnings! : []),
-      ...(meoScore === null && meoError ? [`MEO scoring unavailable: ${meoError}`] : []),
-      ...(geoScore === null && geoError ? [`GEO scoring unavailable: ${geoError}`] : []),
-      ...(overallBasis !== 'meo+geo' ? [`Overall score computed from ${overallBasis} only`] : []),
-    ]
+      ...friendlyEngineWarnings,
+      ...(meoScore === null && meoError
+        ? ['Maps visibility (MEO) score could not be computed for this scan.']
+        : []),
+      ...(geoScore === null && geoError
+        ? ['AI visibility (GEO) score could not be computed for this scan.']
+        : []),
+      ...(overallBasis === 'meo-only'
+        ? ['Overall score is based on Maps visibility only — AI visibility analysis did not complete.']
+        : overallBasis === 'geo-only'
+          ? ['Overall score is based on AI visibility only — Maps visibility analysis did not complete.']
+          : []),
+    ].filter((w) => {
+      const key = w.toLowerCase().trim()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 
     // GEO component breakdown for response
     const geoComponentBreakdown = geoExplain ? {
@@ -775,10 +887,53 @@ export async function POST(req: NextRequest) {
       competitiveDataAvailable: meoExplain.competitiveDataAvailable,
     } : null
 
+    // Diagnostic object — NOT shown in UI. Helps verify in Network tab which
+    // backend pipeline actually ran (server-side Places vs client fallback,
+    // and per-strategy competitor results). Safe to keep in production
+    // because it carries no secrets, only counts and strategy names.
+    const competitorDebug = meoExplain?.competitorDebug
+    /** Quick booleans for support/debug — never includes the API key. */
+    const competitorPlacesApiReachable = competitorDebug
+      ? !competitorDebug.apiUnreachable
+      : null
+    const debug = {
+      scanVersion: 'scan-v1.4',
+      serverSidePlaceDetailsSucceeded: placeDetailsDebug.usedServerDetails,
+      competitorPlacesApiReachable,
+      placeDetails: placeDetailsDebug,
+      competitors: competitorDebug
+        ? {
+            attempts: competitorDebug.attempts,
+            finalCount: competitorDebug.finalCount,
+            apiUnreachable: competitorDebug.apiUnreachable,
+            reasonIfUnavailable: competitorDebug.reasonIfUnavailable,
+            sample: competitorDebug.competitors.slice(0, 5).map((c) => ({
+              place_id: c.place_id,
+              name: c.name,
+              rating: c.rating,
+              user_ratings_total: c.user_ratings_total,
+              types: c.types?.slice(0, 3),
+            })),
+          }
+        : {
+            attempts: [],
+            finalCount: 0,
+            apiUnreachable: !env.googleKey,
+            reasonIfUnavailable: !env.googleKey
+              ? 'GOOGLE_PLACES_API_KEY not configured on the geo-command-center deployment.'
+              : 'MEO engine did not run, so competitor analysis was skipped.',
+            sample: [],
+          },
+      env: {
+        googlePlacesKeyConfigured: !!env.googleKey,
+        openaiKeyConfigured: !!env.openaiKey,
+      },
+    }
+
     return NextResponse.json(
       {
         success: true,
-        scanVersion: 'scan-v1.2',
+        scanVersion: 'scan-v1.4',
         geoAlgoVersion: 'geo-v5',
         scores: { meo: meoScore, geo: geoScore, overall, final: overall },
         scanConfidence,
@@ -791,6 +946,8 @@ export async function POST(req: NextRequest) {
         meoComponentBreakdown,
         geoComponentBreakdown,
         scoringWarnings: allScoringWarnings.length > 0 ? allScoringWarnings : undefined,
+        // Diagnostic info — NOT meant for UI display. Inspect via DevTools.
+        debug,
         meta: {
           processingTimeMs,
           timings,
